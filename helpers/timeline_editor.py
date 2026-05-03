@@ -252,12 +252,28 @@ DEFAULT_EDITOR_FONT_SIZE = 9
 MIN_EDITOR_FONT_SIZE = 7
 MAX_EDITOR_FONT_SIZE = 14
 
+EDITOR_THEME_DARK = "dark"
+EDITOR_THEME_LIGHT = "light"
+DEFAULT_EDITOR_THEME = EDITOR_THEME_DARK
+EDITOR_THEME_VALUES = {EDITOR_THEME_DARK, EDITOR_THEME_LIGHT}
+
 TIMELINE_AUTOSAVE_JSON_NAME = "timeline_editor_autosave.json"
 TIMELINE_AUTOSAVE_INTERVAL_MS = 60 * 1000
 
 
 def sanitize_editor_font_size(value: Any, fallback: int = DEFAULT_EDITOR_FONT_SIZE) -> int:
     return int(clamp(safe_int(value, fallback), MIN_EDITOR_FONT_SIZE, MAX_EDITOR_FONT_SIZE))
+
+
+def normalize_editor_theme(value: Any) -> str:
+    raw = str(value or "").strip().lower()
+    if raw in ("day", "bright", "white"):
+        return EDITOR_THEME_LIGHT
+    if raw in ("night", "black"):
+        return EDITOR_THEME_DARK
+    if raw in EDITOR_THEME_VALUES:
+        return raw
+    return DEFAULT_EDITOR_THEME
 
 
 LAYOUT_PRESET_EDITING = "editing"
@@ -290,8 +306,8 @@ def normalize_layout_preset(value: Any) -> str:
     alias_map = {
         "editing": LAYOUT_PRESET_EDITING,
         "edit": LAYOUT_PRESET_EDITING,
-        "default": LAYOUT_PRESET_EDITING,
-        "normal": LAYOUT_PRESET_EDITING,
+        "default": LAYOUT_PRESET_MEDIA_TOP,
+        "normal": LAYOUT_PRESET_MEDIA_TOP,
         "preview_left": LAYOUT_PRESET_EDITING,
         "left_preview": LAYOUT_PRESET_EDITING,
         "preview_side": LAYOUT_PRESET_EDITING,
@@ -309,11 +325,11 @@ def normalize_layout_preset(value: Any) -> str:
         "classic": LAYOUT_PRESET_CLASSIC,
         "legacy": LAYOUT_PRESET_CLASSIC,
     }
-    return alias_map.get(raw, LAYOUT_PRESET_EDITING)
+    return alias_map.get(raw, LAYOUT_PRESET_MEDIA_TOP)
 
 
 def layout_preset_label(value: Any) -> str:
-    return LAYOUT_PRESET_LABELS.get(normalize_layout_preset(value), LAYOUT_PRESET_LABELS[LAYOUT_PRESET_EDITING])
+    return LAYOUT_PRESET_LABELS.get(normalize_layout_preset(value), LAYOUT_PRESET_LABELS[LAYOUT_PRESET_MEDIA_TOP])
 
 
 def default_layout_state_for_preset(value: Any) -> Dict[str, Any]:
@@ -328,7 +344,7 @@ def default_layout_state_for_preset(value: Any) -> Dict[str, Any]:
         "logs_collapsed": True,
         "main_splitter_sizes": [1, 1200],
         "right_splitter_sizes": [360, 520, 34],
-        "preview_left_top_splitter_sizes": [1, 1, 1],
+        "preview_left_top_splitter_sizes": [520, 300, 900],
         "preview_left_outer_splitter_sizes": [360, 520, 34],
     }
     if preset == LAYOUT_PRESET_EDITING:
@@ -350,8 +366,9 @@ def default_layout_state_for_preset(value: Any) -> Dict[str, Any]:
     elif preset == LAYOUT_PRESET_MEDIA_TOP:
         # Default splitter position: keep the top Media/Transitions/Preview
         # band useful, but give a little more height to the Timeline by default.
-        state["right_splitter_sizes"] = [360, 520, 34]
-        state["preview_left_outer_splitter_sizes"] = [360, 520, 34]
+        state["right_splitter_sizes"] = [390, 490, 34]
+        state["preview_left_outer_splitter_sizes"] = [390, 490, 34]
+        state["preview_left_top_splitter_sizes"] = [520, 300, 900]
     elif preset == LAYOUT_PRESET_CLASSIC:
         state.update({
             "main_splitter_sizes": [330, 900],
@@ -374,7 +391,7 @@ def _sanitize_int_list(value: Any, fallback: List[int], min_len: int = 2, max_le
 
 def sanitize_layout_state(data: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     source = data if isinstance(data, dict) else {}
-    preset = normalize_layout_preset(source.get("layout_preset", source.get("layout", LAYOUT_PRESET_EDITING)))
+    preset = normalize_layout_preset(source.get("layout_preset", source.get("layout", LAYOUT_PRESET_MEDIA_TOP)))
     state = default_layout_state_for_preset(preset)
     state["media_collapsed"] = bool_from_project_value(source.get("media_collapsed", state["media_collapsed"]), state["media_collapsed"])
     state["timeline_collapsed"] = bool_from_project_value(source.get("timeline_collapsed", state["timeline_collapsed"]), state["timeline_collapsed"])
@@ -383,7 +400,7 @@ def sanitize_layout_state(data: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     state["logs_collapsed"] = bool_from_project_value(source.get("logs_collapsed", state["logs_collapsed"]), state["logs_collapsed"])
     state["main_splitter_sizes"] = _sanitize_int_list(source.get("main_splitter_sizes"), list(state["main_splitter_sizes"]), 2, 2)
     state["right_splitter_sizes"] = _sanitize_int_list(source.get("right_splitter_sizes"), list(state["right_splitter_sizes"]), 2, 3)
-    state["preview_left_top_splitter_sizes"] = _sanitize_int_list(source.get("preview_left_top_splitter_sizes"), list(state["preview_left_top_splitter_sizes"]), 2, 2)
+    state["preview_left_top_splitter_sizes"] = _sanitize_int_list(source.get("preview_left_top_splitter_sizes"), list(state["preview_left_top_splitter_sizes"]), 3, 3)
     state["preview_left_outer_splitter_sizes"] = _sanitize_int_list(source.get("preview_left_outer_splitter_sizes"), list(state["preview_left_outer_splitter_sizes"]), 2, 2)
     return state
 
@@ -11387,14 +11404,15 @@ def default_project_editor_state() -> Dict[str, Any]:
         "show_timeline_waveforms": DEFAULT_SHOW_TIMELINE_WAVEFORMS,
         "preview_quality": DEFAULT_PREVIEW_QUALITY,
         "editor_font_size": DEFAULT_EDITOR_FONT_SIZE,
-        "layout_preset": LAYOUT_PRESET_EDITING,
+        "editor_theme": DEFAULT_EDITOR_THEME,
+        "layout_preset": LAYOUT_PRESET_MEDIA_TOP,
         "media_collapsed": False,
         "timeline_collapsed": False,
         "preview_collapsed": False,
         "logs_collapsed": True,
         "main_splitter_sizes": [1, 1200],
         "right_splitter_sizes": [360, 520, 34],
-        "preview_left_top_splitter_sizes": [1, 1, 1],
+        "preview_left_top_splitter_sizes": [520, 300, 900],
         "preview_left_outer_splitter_sizes": [360, 520, 34],
         "embed_preview_enabled": True,
         "preview_view_mode": "fit",
@@ -11421,6 +11439,7 @@ def sanitize_project_editor_state(data: Optional[Dict[str, Any]]) -> Dict[str, A
     state["show_timeline_waveforms"] = bool_from_project_value(source.get("show_timeline_waveforms", source.get("show_waveform", state["show_timeline_waveforms"])), state["show_timeline_waveforms"])
     state["preview_quality"] = normalize_preview_quality(source.get("preview_quality", state["preview_quality"]))
     state["editor_font_size"] = sanitize_editor_font_size(source.get("editor_font_size", source.get("font_size", state["editor_font_size"])), state["editor_font_size"])
+    state["editor_theme"] = normalize_editor_theme(source.get("editor_theme", source.get("theme", state["editor_theme"])))
     layout_state = sanitize_layout_state(source)
     for key in (
         "layout_preset",
@@ -14554,9 +14573,9 @@ def run_self_tests() -> Tuple[bool, List[str]]:
         font_state = sanitize_project_editor_state({"editor_font_size": 11})
         check(font_state.get("editor_font_size") == 11, "editor font size saves/loads through editor state")
         old_settings_state = sanitize_project_editor_state({"pixels_per_second": 70.0, "scroll_x": 12.0, "playhead_time": 3.5})
-        check(old_settings_state.get("layout_preset") == LAYOUT_PRESET_EDITING, "old settings JSON without layout preset loads to Editing safely")
+        check(old_settings_state.get("layout_preset") == LAYOUT_PRESET_MEDIA_TOP, "old settings JSON without layout preset loads to Media Top safely")
         invalid_layout_state = sanitize_project_editor_state({"layout_preset": "banana", "media_collapsed": True})
-        check(invalid_layout_state.get("layout_preset") == LAYOUT_PRESET_EDITING, "invalid layout preset falls back to Editing")
+        check(invalid_layout_state.get("layout_preset") == LAYOUT_PRESET_MEDIA_TOP, "invalid layout preset falls back to Media Top")
         check(list(LAYOUT_PRESET_LABELS.values()) == ["Editing", "Timeline Top", "Media Top", "Classic"], "layout preset list contains the useful v37 layout names")
         check("Preview Left" not in LAYOUT_PRESET_LABELS.values() and "Timeline Focus" not in LAYOUT_PRESET_LABELS.values() and "Media Focus" not in LAYOUT_PRESET_LABELS.values(), "old broken layout names are not exposed")
         legacy_preview_left_state = sanitize_project_editor_state({
@@ -14573,6 +14592,8 @@ def run_self_tests() -> Tuple[bool, List[str]]:
         check(timeline_top_state.get("right_splitter_sizes", [])[0] > timeline_top_state.get("right_splitter_sizes", [0, 0])[1], "Timeline Top gives the timeline band priority")
         media_top_state = default_layout_state_for_preset(LAYOUT_PRESET_MEDIA_TOP)
         check(media_top_state.get("right_splitter_sizes", [])[0] >= 360 and media_top_state.get("right_splitter_sizes", [0, 0])[1] > media_top_state.get("right_splitter_sizes", [0, 0])[0] and bool(media_top_state.get("logs_collapsed")), "Media Top keeps a useful top media band while giving the timeline default height priority")
+        media_top_widths = list(media_top_state.get("preview_left_top_splitter_sizes", []))
+        check(len(media_top_widths) == 3 and media_top_widths[2] > media_top_widths[1] and media_top_widths[1] < media_top_widths[0], "Media Top default gives Transitions less width and Preview more width")
         classic_state = default_layout_state_for_preset(LAYOUT_PRESET_CLASSIC)
         check(classic_state.get("layout_preset") == LAYOUT_PRESET_CLASSIC and classic_state.get("main_splitter_sizes", [0])[0] >= 260, "Classic remains available and safe")
         check(not bool(classic_state.get("transitions_collapsed")) and not bool(classic_state.get("media_collapsed")), "Classic opens Media Bin and Transitions together")
@@ -14681,7 +14702,7 @@ def run_self_tests() -> Tuple[bool, List[str]]:
         check(project_window_title("Editor", True).endswith("*") and project_window_title("Editor", False) == "Editor", "dirty state is shown lightly in the window title")
 
         preserved_ui_state = {
-            "layout_preset": LAYOUT_PRESET_EDITING,
+            "layout_preset": LAYOUT_PRESET_MEDIA_TOP,
             "main_splitter_sizes": [1, 1200],
             "right_splitter_sizes": [360, 520, 34],
             "media_collapsed": True,
@@ -15037,6 +15058,10 @@ def run_self_tests() -> Tuple[bool, List[str]]:
         settings_state = default_project_editor_state()
         settings_state["preview_quality"] = "720p"
         check(sanitize_project_editor_state(settings_state)["preview_quality"] == PREVIEW_QUALITY_720, "preview quality saves/loads")
+        settings_state["editor_theme"] = "light"
+        check(sanitize_project_editor_state(settings_state)["editor_theme"] == EDITOR_THEME_LIGHT, "editor theme saves/loads")
+        settings_state["editor_theme"] = "night"
+        check(sanitize_project_editor_state(settings_state)["editor_theme"] == EDITOR_THEME_DARK, "legacy night theme value maps to dark")
         check(source_resolution_does_not_change_canvas(canvas_project, 3840, 2160), "source media resolution does not change project canvas")
         check(source_resolution_does_not_change_canvas(canvas_project, 512, 768), "image resolution does not change project canvas")
         mask_w, mask_h = transition_mask_target_size_for_canvas(canvas_project, "480p")
@@ -18311,11 +18336,11 @@ if QT_AVAILABLE:
             self.selection_anchor_clip_id: Optional[str] = None
             self.snap_enabled = True
             self._last_project_path = str(default_project_path())
-            self.layout_preset = LAYOUT_PRESET_EDITING
-            self.main_splitter_sizes: List[int] = [330, 900]
-            self.right_splitter_sizes: List[int] = [420, 300, 150]
-            self.preview_left_top_splitter_sizes: List[int] = [420, 650]
-            self.preview_left_outer_splitter_sizes: List[int] = [620, 150]
+            self.layout_preset = LAYOUT_PRESET_MEDIA_TOP
+            self.main_splitter_sizes: List[int] = [1, 1200]
+            self.right_splitter_sizes: List[int] = [390, 490, 34]
+            self.preview_left_top_splitter_sizes: List[int] = [520, 300, 900]
+            self.preview_left_outer_splitter_sizes: List[int] = [390, 490, 34]
             self.classic_left_splitter: Optional[QSplitter] = None
             self._layout_switching = False
             self._timeline_layout_refresh_pending = False
@@ -18380,6 +18405,7 @@ if QT_AVAILABLE:
             self.show_timeline_thumbnails = DEFAULT_SHOW_TIMELINE_THUMBNAILS
             self.show_timeline_waveforms = DEFAULT_SHOW_TIMELINE_WAVEFORMS
             self.preview_quality = DEFAULT_PREVIEW_QUALITY
+            self.editor_theme = DEFAULT_EDITOR_THEME
             self.timeline_thumbnail_cache: Dict[str, QPixmap] = {}
             self.timeline_waveform_cache: Dict[str, List[float]] = {}
             self.timeline_media_cache_missing: set[str] = set()
@@ -18509,6 +18535,7 @@ if QT_AVAILABLE:
             self._apply_editor_font_size(self.editor_font_size, save=False, update_control=False)
 
             self._build_ui()
+            self.set_editor_theme(self.editor_theme, save=False)
             self._init_qt_preview_player()
             self._connect_shortcuts()
             self._update_undo_redo_buttons()
@@ -18558,6 +18585,7 @@ if QT_AVAILABLE:
 
         def _build_ui(self) -> None:
             root = QWidget(self)
+            root.setObjectName("timelineEditorRoot")
             outer = QVBoxLayout(root)
             outer.setContentsMargins(8, 8, 8, 8)
             outer.setSpacing(6)
@@ -18614,6 +18642,12 @@ if QT_AVAILABLE:
             self.footer_start_btn.clicked.connect(self.go_to_start)
             self.footer_end_btn.clicked.connect(self.go_to_end)
 
+            self.theme_toggle_btn = QPushButton("🌙 Dark", footer)
+            self.theme_toggle_btn.setObjectName("themeToggleButton")
+            self.theme_toggle_btn.setCheckable(True)
+            self.theme_toggle_btn.setToolTip("Switch between the light/day and dark/night editor themes")
+            self.theme_toggle_btn.clicked.connect(self.toggle_editor_theme)
+
             self.preview_play_btn.setText("▶ Play")
             self.preview_pause_btn.setText("Pause")
             self.preview_stop_btn.setText("■ Stop")
@@ -18622,6 +18656,10 @@ if QT_AVAILABLE:
                 button.setMinimumHeight(34)
                 button.setMinimumWidth(112)
                 button.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+            self.theme_toggle_btn.setFont(control_font)
+            self.theme_toggle_btn.setMinimumHeight(34)
+            self.theme_toggle_btn.setMinimumWidth(112)
+            self.theme_toggle_btn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
 
             footer_position_label = QLabel("Position:", footer)
             footer_position_label.setFont(control_font)
@@ -18643,11 +18681,478 @@ if QT_AVAILABLE:
             row.addWidget(footer_position_label)
             row.addWidget(self.preview_time_slider, 1)
             row.addWidget(self.preview_time_label)
+            row.addSpacing(8)
+            row.addWidget(self.theme_toggle_btn)
 
             outer_row.addStretch(1)
             outer_row.addWidget(center, 1)
             outer_row.addStretch(1)
             return footer
+
+        def _editor_theme_stylesheet(self, theme: str) -> str:
+            """Return a compact app-wide day/night stylesheet.
+
+            Preview rendering/export surfaces keep their own explicit black
+            stylesheet so the theme switch cannot alter actual video colors.
+            """
+            if normalize_editor_theme(theme) == EDITOR_THEME_LIGHT:
+                return """
+                    QMainWindow, QWidget#timelineEditorRoot {
+                        background-color: #f4f7fb;
+                        color: #16222d;
+                        selection-background-color: #1f8fc0;
+                        selection-color: #ffffff;
+                    }
+                    QLabel, QCheckBox, QRadioButton, QGroupBox {
+                        color: #16222d;
+                        background-color: transparent;
+                    }
+                    QWidget#previewSection, QWidget#previewHeader, QWidget#previewBody, QWidget#previewControls, QWidget#previewViewerRow, QWidget#previewScrubRow {
+                        background-color: transparent;
+                        border: 0px;
+                    }
+                    QWidget#timelinePlaybackFooter {
+                        background-color: #e7eef5;
+                        border-top: 1px solid #c7d5e1;
+                    }
+                    QPushButton {
+                        background-color: #ffffff;
+                        color: #16222d;
+                        border: 1px solid #b8cad8;
+                        border-radius: 8px;
+                        padding: 6px 10px;
+                    }
+                    QPushButton:hover {
+                        background-color: #e9f6ff;
+                        border-color: #1f8fc0;
+                    }
+                    QPushButton:pressed, QPushButton:checked {
+                        background-color: #1f8fc0;
+                        border-color: #1475a0;
+                        color: #ffffff;
+                    }
+                    QPushButton:disabled {
+                        background-color: #e3e8ee;
+                        color: #8a9aaa;
+                        border-color: #c8d2dc;
+                    }
+                    QPushButton#themeToggleButton {
+                        min-width: 112px;
+                    }
+                    QPushButton#themeToggleButton:checked {
+                        background-color: #d8e7f3;
+                        border-color: #7aa8c4;
+                        color: #16222d;
+                    }
+                    QPushButton#themeToggleButton:hover:checked {
+                        background-color: #cddfed;
+                        border-color: #5f97b8;
+                        color: #16222d;
+                    }
+                    QLineEdit, QTextEdit, QComboBox, QSpinBox, QDoubleSpinBox, QTableWidget, QTreeWidget, QListWidget {
+                        background-color: #ffffff;
+                        color: #16222d;
+                        border: 1px solid #c2d0dc;
+                        border-radius: 6px;
+                        padding: 4px;
+                    }
+                    QTableWidget, QTreeWidget, QListWidget, QAbstractItemView {
+                        alternate-background-color: #edf4fa;
+                        gridline-color: #c7d5e1;
+                    }
+                    QTableWidget::item, QTreeWidget::item, QListWidget::item {
+                        color: #16222d;
+                    }
+                    QTableWidget::item:selected, QTreeWidget::item:selected, QListWidget::item:selected {
+                        background-color: #1f8fc0;
+                        color: #ffffff;
+                    }
+                    QHeaderView::section {
+                        background-color: #e7eef5;
+                        color: #16222d;
+                        border: 1px solid #c7d5e1;
+                        padding: 4px;
+                    }
+                    QMenu {
+                        background-color: #ffffff;
+                        color: #16222d;
+                        border: 1px solid #b8cad8;
+                    }
+                    QMenu::item:selected {
+                        background-color: #dff2ff;
+                    }
+                    QScrollArea {
+                        background-color: #f4f7fb;
+                        border-color: #c7d5e1;
+                    }
+                    QScrollArea > QWidget > QWidget {
+                        background-color: #f4f7fb;
+                    }
+                    QSplitter::handle {
+                        background-color: #c7d5e1;
+                    }
+                    QSlider::groove:horizontal {
+                        height: 7px;
+                        background: #c7d5e1;
+                        border-radius: 3px;
+                    }
+                    QSlider::handle:horizontal {
+                        width: 16px;
+                        margin: -5px 0;
+                        background: #1f8fc0;
+                        border: 1px solid #1475a0;
+                        border-radius: 8px;
+                    }
+                    QProgressBar {
+                        background-color: #dfe8f0;
+                        color: #16222d;
+                        border: 1px solid #c7d5e1;
+                        border-radius: 6px;
+                        text-align: center;
+                    }
+                    QProgressBar::chunk {
+                        background-color: #1d9a6f;
+                        border-radius: 5px;
+                    }
+                    QCheckBox::indicator {
+                        width: 15px;
+                        height: 15px;
+                    }
+                    QMessageBox {
+                        background-color: #f4f7fb;
+                        color: #16222d;
+                    }
+                    QMessageBox QWidget {
+                        background-color: #f4f7fb;
+                        color: #16222d;
+                    }
+                    QMessageBox QLabel {
+                        background-color: transparent;
+                        color: #16222d;
+                    }
+                    QMessageBox QPushButton {
+                        background-color: #ffffff;
+                        color: #16222d;
+                        border: 1px solid #b8cad8;
+                        border-radius: 8px;
+                        padding: 6px 18px;
+                        min-width: 88px;
+                    }
+                    QMessageBox QPushButton:hover {
+                        background-color: #e9f6ff;
+                        border-color: #1f8fc0;
+                    }
+                    QMessageBox QPushButton:pressed {
+                        background-color: #1f8fc0;
+                        border-color: #1475a0;
+                        color: #ffffff;
+                    }
+                    QToolTip {
+                        background-color: #ffffff;
+                        color: #16222d;
+                        border: 1px solid #b8cad8;
+                    }
+                    QLabel#previewSurface {
+                        background-color: #050505;
+                        color: #dfe3ee;
+                        border: 1px solid #272b34;
+                        border-radius: 6px;
+                        padding: 0px;
+                    }
+                    QWidget#previewPrepareBubble {
+                        background-color: rgba(18, 21, 30, 210);
+                        border: 1px solid rgba(170, 184, 210, 95);
+                        border-radius: 11px;
+                        color: #f1f4fb;
+                    }
+                    QWidget#previewPrepareBubble QLabel {
+                        background-color: transparent;
+                        border: 0px;
+                        color: #f1f4fb;
+                    }
+                """
+            return """
+                QMainWindow, QWidget#timelineEditorRoot {
+                    background-color: #071018;
+                    color: #e8f2f8;
+                    selection-background-color: #169bd5;
+                    selection-color: #ffffff;
+                }
+                QLabel, QCheckBox, QRadioButton, QGroupBox {
+                    color: #e8f2f8;
+                    background-color: transparent;
+                }
+                QWidget#previewSection, QWidget#previewHeader, QWidget#previewBody, QWidget#previewControls, QWidget#previewViewerRow, QWidget#previewScrubRow {
+                    background-color: transparent;
+                    border: 0px;
+                }
+                QWidget#timelinePlaybackFooter {
+                    background-color: #061018;
+                    border-top: 1px solid #1b3f52;
+                }
+                QPushButton {
+                    background-color: #10212b;
+                    color: #e8f2f8;
+                    border: 1px solid #27556a;
+                    border-radius: 9px;
+                    padding: 6px 10px;
+                }
+                QPushButton:hover {
+                    background-color: #153243;
+                    border-color: #28a9dd;
+                }
+                QPushButton:pressed, QPushButton:checked {
+                    background-color: #129f72;
+                    border-color: #22c18b;
+                    color: #ffffff;
+                }
+                QPushButton:disabled {
+                    background-color: #101820;
+                    color: #62717d;
+                    border-color: #20313d;
+                }
+                QPushButton#themeToggleButton {
+                    min-width: 112px;
+                }
+                QPushButton#themeToggleButton:checked {
+                    background-color: #153243;
+                    border-color: #2a748f;
+                    color: #e8f2f8;
+                }
+                QPushButton#themeToggleButton:hover:checked {
+                    background-color: #1a4052;
+                    border-color: #39a3c8;
+                    color: #ffffff;
+                }
+                QLineEdit, QTextEdit, QComboBox, QSpinBox, QDoubleSpinBox, QTableWidget, QTreeWidget, QListWidget {
+                    background-color: #0c1720;
+                    color: #e8f2f8;
+                    border: 1px solid #23475a;
+                    border-radius: 7px;
+                    padding: 4px;
+                }
+                QTableWidget, QTreeWidget, QListWidget, QAbstractItemView {
+                    alternate-background-color: #0f202a;
+                    gridline-color: #203d4d;
+                }
+                QTableWidget::item, QTreeWidget::item, QListWidget::item {
+                    color: #e8f2f8;
+                }
+                QTableWidget::item:selected, QTreeWidget::item:selected, QListWidget::item:selected {
+                    background-color: #1197d2;
+                    color: #ffffff;
+                }
+                QHeaderView::section {
+                    background-color: #0d1820;
+                    color: #e8f2f8;
+                    border: 1px solid #203d4d;
+                    padding: 4px;
+                }
+                QMenu {
+                    background-color: #0c1720;
+                    color: #e8f2f8;
+                    border: 1px solid #27556a;
+                }
+                QMenu::item:selected {
+                    background-color: #153243;
+                }
+                QScrollArea {
+                    background-color: #071018;
+                    border-color: #1b3f52;
+                }
+                QScrollArea > QWidget > QWidget {
+                    background-color: #071018;
+                }
+                QSplitter::handle {
+                    background-color: #153243;
+                }
+                QSlider::groove:horizontal {
+                    height: 7px;
+                    background: #18313d;
+                    border-radius: 3px;
+                }
+                QSlider::handle:horizontal {
+                    width: 16px;
+                    margin: -5px 0;
+                    background: #22c18b;
+                    border: 1px solid #34dca2;
+                    border-radius: 8px;
+                }
+                QProgressBar {
+                    background-color: #0c1720;
+                    color: #e8f2f8;
+                    border: 1px solid #23475a;
+                    border-radius: 6px;
+                    text-align: center;
+                }
+                QProgressBar::chunk {
+                    background-color: #129f72;
+                    border-radius: 5px;
+                }
+                QCheckBox::indicator {
+                    width: 15px;
+                    height: 15px;
+                }
+                QMessageBox {
+                    background-color: #071018;
+                    color: #e8f2f8;
+                }
+                QMessageBox QWidget {
+                    background-color: #071018;
+                    color: #e8f2f8;
+                }
+                QMessageBox QLabel {
+                    background-color: transparent;
+                    color: #e8f2f8;
+                }
+                QMessageBox QPushButton {
+                    background-color: #10212b;
+                    color: #e8f2f8;
+                    border: 1px solid #27556a;
+                    border-radius: 9px;
+                    padding: 6px 18px;
+                    min-width: 88px;
+                }
+                QMessageBox QPushButton:hover {
+                    background-color: #153243;
+                    border-color: #28a9dd;
+                }
+                QMessageBox QPushButton:pressed {
+                    background-color: #153243;
+                    border-color: #39a3c8;
+                    color: #ffffff;
+                }
+                QToolTip {
+                    background-color: #0c1720;
+                    color: #e8f2f8;
+                    border: 1px solid #27556a;
+                }
+                QLabel#previewSurface {
+                    background-color: #050505;
+                    color: #dfe3ee;
+                    border: 1px solid #272b34;
+                    border-radius: 6px;
+                    padding: 0px;
+                }
+                QWidget#previewPrepareBubble {
+                    background-color: rgba(18, 21, 30, 210);
+                    border: 1px solid rgba(170, 184, 210, 95);
+                    border-radius: 11px;
+                    color: #f1f4fb;
+                }
+                QWidget#previewPrepareBubble QLabel {
+                    background-color: transparent;
+                    border: 0px;
+                    color: #f1f4fb;
+                }
+            """
+
+        def _preview_surface_stylesheet(self) -> str:
+            """Style for real preview/video surfaces that must not inherit themes."""
+            return """
+                QLabel#previewSurface {
+                    background-color: #050505;
+                    color: #dfe3ee;
+                    border: 1px solid #272b34;
+                    border-radius: 6px;
+                    padding: 0px;
+                }
+            """
+
+        def _preview_prepare_overlay_stylesheet(self) -> str:
+            """Style the small preview preparation bubble without theme leakage."""
+            return """
+                QWidget#previewPrepareBubble {
+                    background-color: rgba(18, 21, 30, 210);
+                    border: 1px solid rgba(170, 184, 210, 95);
+                    border-radius: 11px;
+                    color: #f1f4fb;
+                }
+                QWidget#previewPrepareBubble QLabel {
+                    background-color: transparent;
+                    border: 0px;
+                    color: #f1f4fb;
+                }
+                QWidget#previewPrepareBubble QProgressBar {
+                    background-color: rgba(5, 7, 12, 160);
+                    border: 1px solid rgba(170, 184, 210, 90);
+                    border-radius: 3px;
+                    color: transparent;
+                }
+                QWidget#previewPrepareBubble QProgressBar::chunk {
+                    background-color: #22c18b;
+                    border-radius: 3px;
+                }
+            """
+
+        def _apply_preview_theme_protection(self) -> None:
+            """Re-apply protected preview styles after global theme changes.
+
+            The day/night stylesheet uses broad QWidget rules for the editor.
+            Preview surfaces and the temporary safeguard bubble must stay out
+            of that cascade, otherwise an empty themed box can appear over the
+            top-left of the preview.
+            """
+            try:
+                for attr in ("preview_section", "preview_body_widget", "preview_controls_widget", "preview_viewer_row_widget", "preview_scrub_row_widget"):
+                    widget = getattr(self, attr, None)
+                    if widget is not None:
+                        widget.setAutoFillBackground(False)
+                surface = getattr(self, "preview_display_label", None)
+                if surface is not None:
+                    surface.setObjectName("previewSurface")
+                    surface.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+                    surface.setAutoFillBackground(False)
+                    surface.setStyleSheet(self._preview_surface_stylesheet())
+            except Exception:
+                pass
+            try:
+                bubble = getattr(self, "preview_prepare_widget", None)
+                if bubble is not None:
+                    bubble.setObjectName("previewPrepareBubble")
+                    bubble.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+                    bubble.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+                    bubble.setAutoFillBackground(False)
+                    bubble.setStyleSheet(self._preview_prepare_overlay_stylesheet())
+                    if not bubble.isVisible():
+                        try:
+                            bubble.setGeometry(0, 0, 0, 0)
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+
+        def _refresh_theme_toggle_button(self) -> None:
+            if not hasattr(self, "theme_toggle_btn"):
+                return
+            dark = normalize_editor_theme(getattr(self, "editor_theme", DEFAULT_EDITOR_THEME)) == EDITOR_THEME_DARK
+            self.theme_toggle_btn.blockSignals(True)
+            self.theme_toggle_btn.setChecked(dark)
+            self.theme_toggle_btn.setText("🌙 Dark" if dark else "☀ Light")
+            self.theme_toggle_btn.setToolTip("Current theme: Dark/night. Click to switch to Light/day." if dark else "Current theme: Light/day. Click to switch to Dark/night.")
+            self.theme_toggle_btn.blockSignals(False)
+
+        def set_editor_theme(self, theme: Any, save: bool = True) -> None:
+            self.editor_theme = normalize_editor_theme(theme)
+            try:
+                self.setStyleSheet(self._editor_theme_stylesheet(self.editor_theme))
+            except Exception:
+                pass
+            self._apply_preview_theme_protection()
+            self._refresh_theme_toggle_button()
+            try:
+                if hasattr(self, "canvas"):
+                    self.canvas.update()
+                if hasattr(self, "preview_display_label"):
+                    self._refresh_preview_pixmap()
+            except Exception:
+                pass
+            if save and not getattr(self, "_loading_settings", False):
+                self.save_editor_state()
+
+        def toggle_editor_theme(self) -> None:
+            current = normalize_editor_theme(getattr(self, "editor_theme", DEFAULT_EDITOR_THEME))
+            self.set_editor_theme(EDITOR_THEME_LIGHT if current == EDITOR_THEME_DARK else EDITOR_THEME_DARK, save=True)
 
         def _build_project_actions_bar(self) -> QWidget:
             bar = QWidget(self)
@@ -19223,7 +19728,7 @@ if QT_AVAILABLE:
                 except Exception:
                     pass
 
-        def _refresh_top_band_splitter_sizes(self) -> None:
+        def _refresh_top_band_splitter_sizes(self, preferred_sizes: Optional[List[int]] = None) -> None:
             top = getattr(self, "top_band_splitter", None)
             if top is None:
                 return
@@ -19232,20 +19737,24 @@ if QT_AVAILABLE:
                 current = [int(x) for x in top.sizes()]
             except Exception:
                 current = []
-            if len(current) != 3 or sum(current) <= 0:
-                current = [1, 1, 1]
+            if preferred_sizes is not None:
+                base = [max(1, int(x)) for x in list(preferred_sizes)[:3]]
+            else:
+                base = [int(x) for x in current[:3]]
+            if len(base) != 3 or sum(base) <= 0:
+                base = list(default_layout_state_for_preset(getattr(self, "layout_preset", LAYOUT_PRESET_MEDIA_TOP)).get("preview_left_top_splitter_sizes", [520, 300, 900]))
+            if len(base) != 3 or sum(base) <= 0:
+                base = [520, 300, 900]
             all_collapsed = self._top_band_is_collapsed_for_vertical_layout()
             if all_collapsed:
                 try:
                     available = int(top.width())
                 except Exception:
                     available = 0
-                available = max(available, sum(current), 34 * 3)
+                available = max(available, sum(base), 34 * 3)
                 sizes = [34, 34, max(34, available - 68)]
             else:
-                sizes: List[int] = []
-                for value, collapsed in zip(current, self._top_band_collapsed_flags()):
-                    sizes.append(34 if collapsed else max(160, int(value)))
+                sizes = [34 if collapsed else max(160, int(value)) for value, collapsed in zip(base, self._top_band_collapsed_flags())]
             try:
                 top.setSizes(sizes)
             except Exception:
@@ -19253,7 +19762,7 @@ if QT_AVAILABLE:
 
         def _force_timeline_workspace_when_top_band_collapsed(self, reason: str = "") -> None:
             """Give Timeline the workspace when Media/Transitions/Preview are collapsed."""
-            preset = normalize_layout_preset(getattr(self, "layout_preset", LAYOUT_PRESET_EDITING))
+            preset = normalize_layout_preset(getattr(self, "layout_preset", LAYOUT_PRESET_MEDIA_TOP))
             if preset not in (LAYOUT_PRESET_MEDIA_TOP, LAYOUT_PRESET_TIMELINE_TOP):
                 return
             if not self._top_band_is_collapsed_for_vertical_layout() or bool(getattr(self, "timeline_collapsed", False)):
@@ -19369,7 +19878,7 @@ if QT_AVAILABLE:
         def _refresh_layout_preset_combo(self) -> None:
             if not hasattr(self, "layout_preset_combo"):
                 return
-            preset = normalize_layout_preset(getattr(self, "layout_preset", LAYOUT_PRESET_EDITING))
+            preset = normalize_layout_preset(getattr(self, "layout_preset", LAYOUT_PRESET_MEDIA_TOP))
             self.layout_preset_combo.blockSignals(True)
             try:
                 for index in range(self.layout_preset_combo.count()):
@@ -19417,7 +19926,7 @@ if QT_AVAILABLE:
                 pass
 
         def _ordered_vertical_sections_for_layout(self, preset: Optional[str] = None) -> List[Tuple[QWidget, bool, int]]:
-            preset = normalize_layout_preset(preset or getattr(self, "layout_preset", LAYOUT_PRESET_EDITING))
+            preset = normalize_layout_preset(preset or getattr(self, "layout_preset", LAYOUT_PRESET_MEDIA_TOP))
             if preset == LAYOUT_PRESET_EDITING:
                 return [
                     (self.timeline_section, False, 900),
@@ -19555,8 +20064,8 @@ if QT_AVAILABLE:
                 top.addWidget(self.transitions_panel)
                 top.addWidget(self.preview_section)
                 top.setStretchFactor(0, 1)
-                top.setStretchFactor(1, 1)
-                top.setStretchFactor(2, 1)
+                top.setStretchFactor(1, 0)
+                top.setStretchFactor(2, 2)
                 self.top_band_splitter = top
                 self.preview_left_top_splitter = top
 
@@ -19591,8 +20100,8 @@ if QT_AVAILABLE:
                 pass
 
         def _apply_layout_splitter_sizes(self, state: Optional[Dict[str, Any]] = None) -> None:
-            state = sanitize_layout_state(state if state is not None else default_layout_state_for_preset(getattr(self, "layout_preset", LAYOUT_PRESET_EDITING)))
-            preset = normalize_layout_preset(state.get("layout_preset", getattr(self, "layout_preset", LAYOUT_PRESET_EDITING)))
+            state = sanitize_layout_state(state if state is not None else default_layout_state_for_preset(getattr(self, "layout_preset", LAYOUT_PRESET_MEDIA_TOP)))
+            preset = normalize_layout_preset(state.get("layout_preset", getattr(self, "layout_preset", LAYOUT_PRESET_MEDIA_TOP)))
             if hasattr(self, "main_splitter"):
                 if preset == LAYOUT_PRESET_CLASSIC:
                     main_sizes = list(state.get("main_splitter_sizes") or default_layout_state_for_preset(preset)["main_splitter_sizes"])
@@ -19604,7 +20113,8 @@ if QT_AVAILABLE:
                     # Two-band layouts keep Media Bin inside the workspace, not in a left side rail.
                     self.main_splitter.setSizes([max(900, self.width() or 900)])
             if hasattr(self, "top_band_splitter") and self.top_band_splitter is not None:
-                self._refresh_top_band_splitter_sizes()
+                top_sizes = list(state.get("preview_left_top_splitter_sizes") or default_layout_state_for_preset(preset).get("preview_left_top_splitter_sizes", [520, 300, 900]))
+                self._refresh_top_band_splitter_sizes(top_sizes)
             if preset == LAYOUT_PRESET_CLASSIC and getattr(self, "classic_left_splitter", None) is not None:
                 try:
                     left_sizes = [34 if bool(getattr(self, "media_collapsed", False)) else 1, 34 if bool(getattr(self, "transitions_collapsed", False)) else 1]
@@ -19768,17 +20278,27 @@ if QT_AVAILABLE:
             btn_split.clicked.connect(self.split_selected_clip)
             btn_delete.clicked.connect(self.delete_selected_clip)
 
-            for widget in [self.playhead_label, self.hover_label, self.zoom_label, self.active_playback_status_label]:
-                nav_row.addWidget(widget)
-            nav_row.addStretch(1)
-            for widget in [self.timeline_view_btn, self.snap_box]:
-                nav_row.addWidget(widget)
+            # Keep the live timeline status visible in the section header.
+            # This removes the old dedicated status row and also keeps the
+            # playhead/hover/zoom/playback readout visible while the Timeline
+            # panel body is collapsed.
+            try:
+                timeline_header_layout = header.layout()
+                if timeline_header_layout is not None:
+                    insert_index = max(0, timeline_header_layout.count() - 1)
+                    for widget in [self.playhead_label, self.hover_label, self.zoom_label, self.active_playback_status_label]:
+                        timeline_header_layout.insertWidget(insert_index, widget)
+                        insert_index += 1
+            except Exception:
+                pass
 
             for widget in [btn_zoom_out, btn_zoom_in, btn_zoom_playhead, btn_fit, self.undo_btn, self.redo_btn, btn_text, btn_split, btn_delete, btn_add_track]:
                 edit_row.addWidget(widget)
             edit_row.addStretch(1)
+            edit_row.addWidget(self.timeline_view_btn)
+            edit_row.addWidget(self.snap_box)
+            self.timeline_nav_widget.setVisible(False)
 
-            main.addWidget(self.timeline_nav_widget)
             main.addWidget(self.timeline_edit_widget)
 
             self.canvas_scroll_area = QScrollArea(section)
@@ -19807,7 +20327,6 @@ if QT_AVAILABLE:
             main.addWidget(self.hscroll)
 
             self.timeline_content_widgets = [
-                self.timeline_nav_widget,
                 self.timeline_edit_widget,
                 self.canvas_scroll_area,
                 self.hscroll,
@@ -19816,19 +20335,28 @@ if QT_AVAILABLE:
 
         def _build_preview_section(self) -> QWidget:
             section = QWidget(self)
+            section.setObjectName("previewSection")
             main = QVBoxLayout(section)
             main.setContentsMargins(0, 0, 0, 0)
             main.setSpacing(6)
 
             header, self.preview_title_label, self.preview_collapse_btn = self._make_section_header("Preview", "▲")
+            header.setObjectName("previewHeader")
             self.preview_transform_readout_label = QLabel("Transform: no visual clip", header)
             self.preview_transform_readout_label.setFont(QFont("Consolas", 9))
             self.preview_transform_readout_label.setToolTip("Current selected visual clip transform. X=0 and Y=0 are the original/default centered position.")
             self.preview_transform_readout_label.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Preferred)
+            self.preview_keyframe_label = QLabel("Keyframes: 0", header)
+            self.preview_keyframe_label.setFont(QFont("Consolas", 9))
+            self.preview_keyframe_label.setToolTip("Number of transform keyframes on the selected visual clip.")
+            self.preview_keyframe_label.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Preferred)
             try:
                 header_layout = header.layout()
                 if header_layout is not None:
-                    header_layout.insertWidget(max(0, header_layout.count() - 1), self.preview_transform_readout_label)
+                    insert_index = max(0, header_layout.count() - 1)
+                    for widget in (self.preview_transform_readout_label, self.preview_keyframe_label):
+                        header_layout.insertWidget(insert_index, widget)
+                        insert_index += 1
             except Exception:
                 pass
             self.preview_collapse_btn.clicked.connect(self.toggle_preview_panel)
@@ -19839,6 +20367,8 @@ if QT_AVAILABLE:
             # The previous direct children could keep splitter space alive in
             # some layouts even after their content was toggled off.
             self.preview_body_widget = QWidget(section)
+            self.preview_body_widget.setObjectName("previewBody")
+            self.preview_body_widget.setAutoFillBackground(False)
             preview_body_layout = QVBoxLayout(self.preview_body_widget)
             preview_body_layout.setContentsMargins(0, 0, 0, 0)
             preview_body_layout.setSpacing(6)
@@ -19852,12 +20382,14 @@ if QT_AVAILABLE:
             self.preview_display_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
             self.preview_display_label.setWordWrap(True)
             self.preview_display_label.setContentsMargins(0, 0, 0, 0)
-            self.preview_display_label.setStyleSheet(
-                "background:#050505; color:#dfe3ee; border:1px solid #272b34; border-radius:6px; padding:0px;"
-            )
+            self.preview_display_label.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+            self.preview_display_label.setAutoFillBackground(False)
+            self.preview_display_label.setStyleSheet(self._preview_surface_stylesheet())
             preview_body_layout.addWidget(self.preview_display_label, 1)
 
             self.preview_controls_widget = QWidget(self.preview_body_widget)
+            self.preview_controls_widget.setObjectName("previewControls")
+            self.preview_controls_widget.setAutoFillBackground(False)
             controls_stack = QVBoxLayout(self.preview_controls_widget)
             controls_stack.setContentsMargins(0, 0, 0, 0)
             controls_stack.setSpacing(4)
@@ -19866,6 +20398,8 @@ if QT_AVAILABLE:
             # position slider needs real horizontal space; mixing it into the audio
             # row caused text overlap at normal editor widths.
             self.preview_scrub_row_widget = QWidget(self.preview_body_widget)
+            self.preview_scrub_row_widget.setObjectName("previewScrubRow")
+            self.preview_scrub_row_widget.setAutoFillBackground(False)
             scrub_row = QHBoxLayout(self.preview_scrub_row_widget)
             scrub_row.setContentsMargins(0, 0, 0, 0)
             scrub_row.setSpacing(6)
@@ -19873,6 +20407,8 @@ if QT_AVAILABLE:
             # Compact preview row: viewer/playback buttons only. Audio/protection
             # controls live in the project header or beside Fullscreen.
             self.preview_viewer_row_widget = QWidget(self.preview_controls_widget)
+            self.preview_viewer_row_widget.setObjectName("previewViewerRow")
+            self.preview_viewer_row_widget.setAutoFillBackground(False)
             viewer_row = QHBoxLayout(self.preview_viewer_row_widget)
             viewer_row.setContentsMargins(0, 0, 0, 0)
             viewer_row.setSpacing(6)
@@ -19881,7 +20417,7 @@ if QT_AVAILABLE:
             self.preview_embed_box.setChecked(self.embed_preview_enabled)
             self.preview_embed_box.toggled.connect(self.set_embed_preview_enabled)
             self.preview_embed_box.setVisible(False)
-            self.preview_fit_btn = QPushButton("Viewer Fit")
+            self.preview_fit_btn = QPushButton(" Fit ")
             self.preview_fill_btn = QPushButton("Viewer Fill")
             self.preview_zoom_out_btn = QPushButton("Zoom -")
             self.preview_zoom_in_btn = QPushButton("Zoom +")
@@ -19899,7 +20435,7 @@ if QT_AVAILABLE:
             self.preview_selected_btn.setVisible(False)
             self.preview_pause_btn = QPushButton("Pause")
             self.preview_stop_btn = QPushButton("Stop")
-            self.preview_fullscreen_btn = QPushButton("Fullscreen")
+            self.preview_fullscreen_btn = QPushButton(" Full ")
             self.preview_reset_transform_btn = QPushButton("Reset Transform")
             self.preview_reset_transform_btn.setToolTip("Reset the selected visual clip's own transform to the default fit/center/scale/rotation/opacity. This does not change Viewer Fit or timeline timing.")
             self.preview_keyframe_add_btn = QPushButton("Add/Update Keyframe")
@@ -19910,9 +20446,6 @@ if QT_AVAILABLE:
             self.preview_keyframe_clear_btn.setToolTip("Remove all transform keyframes from the selected visual clip.")
             self.preview_default_keyframe_btn = QPushButton("Add Default Keyframe")
             self.preview_default_keyframe_btn.setToolTip("Store true default/original placement at the current playhead position: X/Y 0, scale 1, rotation 0, opacity 1, fit mode fit.")
-            self.preview_keyframe_label = QLabel("Keyframes: 0")
-            self.preview_keyframe_label.setFont(QFont("Consolas", 9))
-            self.preview_keyframe_label.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Preferred)
             self.preview_time_slider = QSlider(Qt.Orientation.Horizontal)
             self.preview_time_slider.setRange(0, 0)
             self.preview_time_slider.setEnabled(False)
@@ -19944,17 +20477,23 @@ if QT_AVAILABLE:
             # of the preview surface so it never changes splitter sizes, preview
             # height, button placement, or timeline space.
             self.preview_prepare_widget = QWidget(self.preview_display_label)
+            self.preview_prepare_widget.setObjectName("previewPrepareBubble")
             self.preview_prepare_widget.setVisible(False)
             self.preview_prepare_widget.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+            self.preview_prepare_widget.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+            self.preview_prepare_widget.setAutoFillBackground(False)
+            self.preview_prepare_widget.setGeometry(0, 0, 0, 0)
             self.preview_prepare_widget.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
             prepare_row = QHBoxLayout(self.preview_prepare_widget)
             prepare_row.setContentsMargins(10, 5, 10, 5)
             prepare_row.setSpacing(7)
             self.preview_prepare_spinner_label = QLabel("⠋", self.preview_prepare_widget)
+            self.preview_prepare_spinner_label.setObjectName("previewPrepareSpinner")
             self.preview_prepare_spinner_label.setFont(QFont("Consolas", 10))
             self.preview_prepare_spinner_label.setFixedWidth(18)
             self.preview_prepare_spinner_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             self.preview_prepare_label = QLabel("Preparing preview…", self.preview_prepare_widget)
+            self.preview_prepare_label.setObjectName("previewPrepareText")
             self.preview_prepare_label.setFont(QFont("Consolas", 9))
             self.preview_prepare_label.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Preferred)
             self.preview_prepare_bar = QProgressBar(self.preview_prepare_widget)
@@ -19965,11 +20504,7 @@ if QT_AVAILABLE:
             prepare_row.addWidget(self.preview_prepare_spinner_label, 0)
             prepare_row.addWidget(self.preview_prepare_label, 0)
             prepare_row.addWidget(self.preview_prepare_bar, 0)
-            self.preview_prepare_widget.setStyleSheet(
-                "QWidget { background:rgba(18, 21, 30, 210); border:1px solid rgba(170, 184, 210, 95); border-radius:11px; color:#f1f4fb; } "
-                "QLabel { border:0; background:transparent; } "
-                "QProgressBar { border:1px solid rgba(170, 184, 210, 90); border-radius:3px; background:rgba(5, 7, 12, 160); }"
-            )
+            self.preview_prepare_widget.setStyleSheet(self._preview_prepare_overlay_stylesheet())
             self.preview_prepare_spinner_frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
             self.preview_prepare_spinner_index = 0
             self.preview_prepare_spinner_timer = QTimer(self)
@@ -20007,7 +20542,7 @@ if QT_AVAILABLE:
                 self.preview_fit_btn, self.preview_fullscreen_btn,
                 self.preview_reset_transform_btn, self.preview_keyframe_add_btn,
                 self.preview_keyframe_delete_btn, self.preview_keyframe_clear_btn,
-                self.preview_default_keyframe_btn, self.preview_keyframe_label,
+                self.preview_default_keyframe_btn,
             ]:
                 viewer_row.addWidget(widget)
             # Hidden v37 legacy controls: Qt preview remains internally on, and source preview
@@ -24194,6 +24729,7 @@ if QT_AVAILABLE:
                 parent = getattr(self, "preview_display_label", None)
                 if widget is None or parent is None:
                     return
+                widget.setStyleSheet(self._preview_prepare_overlay_stylesheet())
                 widget.adjustSize()
                 margin = 12
                 max_width = max(120, int(parent.width()) - (margin * 2))
@@ -24240,7 +24776,13 @@ if QT_AVAILABLE:
                         spinner.setText("⠋")
                 widget.setVisible(visible)
                 if visible:
+                    widget.setStyleSheet(self._preview_prepare_overlay_stylesheet())
                     self._preview_prepare_update_overlay_geometry()
+                else:
+                    try:
+                        widget.setGeometry(0, 0, 0, 0)
+                    except Exception:
+                        pass
                 if timer is not None:
                     if visible and busy and not timer.isActive():
                         timer.start()
@@ -24887,7 +25429,7 @@ if QT_AVAILABLE:
             else:
                 self._set_horizontal_panel_collapsed(self.media_panel, collapsed, min_open_width=220)
                 self._set_vertical_panel_collapsed(self.media_panel, False)
-            if getattr(self, "layout_preset", LAYOUT_PRESET_EDITING) == LAYOUT_PRESET_CLASSIC and hasattr(self, "main_splitter"):
+            if getattr(self, "layout_preset", LAYOUT_PRESET_MEDIA_TOP) == LAYOUT_PRESET_CLASSIC and hasattr(self, "main_splitter"):
                 try:
                     if collapsed and not in_classic_left:
                         self.main_splitter.setSizes([34, max(600, self.width() - 34)])
@@ -24951,7 +25493,7 @@ if QT_AVAILABLE:
         def _refresh_right_splitter_sizes(self) -> None:
             if not hasattr(self, "right_splitter"):
                 return
-            preset = normalize_layout_preset(getattr(self, "layout_preset", LAYOUT_PRESET_EDITING))
+            preset = normalize_layout_preset(getattr(self, "layout_preset", LAYOUT_PRESET_MEDIA_TOP))
             state = default_layout_state_for_preset(preset)
             state["layout_preset"] = preset
             try:
@@ -30173,7 +30715,7 @@ if QT_AVAILABLE:
             self.timeline_math.scroll_x = max(0.0, safe_float(state.get("scroll_x"), 0.0))
             self.playhead_time = max(0.0, safe_float(state.get("playhead_time"), 0.0))
             self.snap_enabled = bool_from_project_value(state.get("snap_enabled"), True)
-            self.layout_preset = normalize_layout_preset(state.get("layout_preset", LAYOUT_PRESET_EDITING))
+            self.layout_preset = normalize_layout_preset(state.get("layout_preset", LAYOUT_PRESET_MEDIA_TOP))
             self.media_collapsed = bool_from_project_value(state.get("media_collapsed"), False)
             self.timeline_collapsed = bool_from_project_value(state.get("timeline_collapsed"), False)
             self.preview_collapsed = bool_from_project_value(state.get("preview_collapsed"), False)
@@ -30181,8 +30723,8 @@ if QT_AVAILABLE:
             self.logs_collapsed = bool_from_project_value(state.get("logs_collapsed"), False)
             self.main_splitter_sizes = list(state.get("main_splitter_sizes", [330, 900]))
             self.right_splitter_sizes = list(state.get("right_splitter_sizes", [420, 300, 150]))
-            self.preview_left_top_splitter_sizes = list(state.get("preview_left_top_splitter_sizes", [420, 650]))
-            self.preview_left_outer_splitter_sizes = list(state.get("preview_left_outer_splitter_sizes", [620, 150]))
+            self.preview_left_top_splitter_sizes = list(state.get("preview_left_top_splitter_sizes", [520, 300, 900]))
+            self.preview_left_outer_splitter_sizes = list(state.get("preview_left_outer_splitter_sizes", [390, 490, 34]))
             self.embed_preview_enabled = bool_from_project_value(state.get("embed_preview_enabled"), True)
             self.preview_external_forced = not self.embed_preview_enabled
             self.preview_view_mode = "fill" if str(state.get("preview_view_mode", "fit")).lower() == "fill" else "fit"
@@ -30197,6 +30739,7 @@ if QT_AVAILABLE:
             self.show_timeline_waveforms = bool_from_project_value(state.get("show_timeline_waveforms"), DEFAULT_SHOW_TIMELINE_WAVEFORMS)
             self.preview_quality = normalize_preview_quality(state.get("preview_quality", getattr(self, "preview_quality", DEFAULT_PREVIEW_QUALITY)))
             self.editor_font_size = sanitize_editor_font_size(state.get("editor_font_size", getattr(self, "editor_font_size", DEFAULT_EDITOR_FONT_SIZE)))
+            self.editor_theme = normalize_editor_theme(state.get("editor_theme", getattr(self, "editor_theme", DEFAULT_EDITOR_THEME)))
             self.active_transition_mask_path = str(state.get("active_transition_mask_path", getattr(self, "active_transition_mask_path", "")) or "")
             self.audio_mix_protection_scale = 1.0
             target_track_id = str(state.get("target_track_id") or "")
@@ -30225,6 +30768,7 @@ if QT_AVAILABLE:
             if hasattr(self, "preview_quality_combo"):
                 self._refresh_preview_quality_combo()
             self._apply_editor_font_size(getattr(self, "editor_font_size", DEFAULT_EDITOR_FONT_SIZE), save=False, update_control=True)
+            self.set_editor_theme(getattr(self, "editor_theme", DEFAULT_EDITOR_THEME), save=False)
             self._refresh_canvas_label()
             self.refresh_target_track_combo()
             self.apply_layout_preset(self.layout_preset, save=False, layout_state=state, log_change=False)
@@ -30458,11 +31002,11 @@ if QT_AVAILABLE:
                 "vertical_scroll": vertical_scroll,
                 "playhead_time": self.playhead_time,
                 "snap_enabled": self.snap_enabled,
-                "layout_preset": normalize_layout_preset(getattr(self, "layout_preset", LAYOUT_PRESET_EDITING)),
+                "layout_preset": normalize_layout_preset(getattr(self, "layout_preset", LAYOUT_PRESET_MEDIA_TOP)),
                 "main_splitter_sizes": list(getattr(self, "main_splitter_sizes", [330, 900])),
                 "right_splitter_sizes": list(getattr(self, "right_splitter_sizes", [420, 300, 150])),
-                "preview_left_top_splitter_sizes": list(getattr(self, "preview_left_top_splitter_sizes", [420, 650])),
-                "preview_left_outer_splitter_sizes": list(getattr(self, "preview_left_outer_splitter_sizes", [620, 150])),
+                "preview_left_top_splitter_sizes": list(getattr(self, "preview_left_top_splitter_sizes", [520, 300, 900])),
+                "preview_left_outer_splitter_sizes": list(getattr(self, "preview_left_outer_splitter_sizes", [390, 490, 34])),
                 "media_collapsed": self.media_collapsed,
                 "timeline_collapsed": self.timeline_collapsed,
                 "preview_collapsed": self.preview_collapsed,
@@ -30482,6 +31026,7 @@ if QT_AVAILABLE:
                 "show_timeline_waveforms": bool(getattr(self, "show_timeline_waveforms", DEFAULT_SHOW_TIMELINE_WAVEFORMS)),
                 "preview_quality": normalize_preview_quality(getattr(self, "preview_quality", DEFAULT_PREVIEW_QUALITY)),
                 "editor_font_size": sanitize_editor_font_size(getattr(self, "editor_font_size", DEFAULT_EDITOR_FONT_SIZE)),
+                "editor_theme": normalize_editor_theme(getattr(self, "editor_theme", DEFAULT_EDITOR_THEME)),
                 "active_transition_mask_path": str(getattr(self, "active_transition_mask_path", "") or ""),
                 "last_project_path": self._last_project_path,
             }
@@ -30511,6 +31056,7 @@ if QT_AVAILABLE:
                 if hasattr(self, "preview_quality_combo"):
                     self._refresh_preview_quality_combo()
                 self._apply_editor_font_size(getattr(self, "editor_font_size", DEFAULT_EDITOR_FONT_SIZE), save=False, update_control=True)
+                self.set_editor_theme(getattr(self, "editor_theme", DEFAULT_EDITOR_THEME), save=False)
                 self._refresh_canvas_label()
                 self.refresh_target_track_combo()
                 self.apply_layout_preset(self.layout_preset, save=False, layout_state=default_layout_state_for_preset(self.layout_preset), log_change=False)
@@ -30535,8 +31081,8 @@ if QT_AVAILABLE:
                 self.logs_collapsed = bool(layout_state.get("logs_collapsed", False))
                 self.main_splitter_sizes = list(layout_state.get("main_splitter_sizes", [330, 900]))
                 self.right_splitter_sizes = list(layout_state.get("right_splitter_sizes", [420, 300, 150]))
-                self.preview_left_top_splitter_sizes = list(layout_state.get("preview_left_top_splitter_sizes", [420, 650]))
-                self.preview_left_outer_splitter_sizes = list(layout_state.get("preview_left_outer_splitter_sizes", [620, 150]))
+                self.preview_left_top_splitter_sizes = list(layout_state.get("preview_left_top_splitter_sizes", [520, 300, 900]))
+                self.preview_left_outer_splitter_sizes = list(layout_state.get("preview_left_outer_splitter_sizes", [390, 490, 34]))
                 self.embed_preview_enabled = bool(data.get("embed_preview_enabled", True))
                 self.preview_view_mode = "fill" if str(data.get("preview_view_mode", "fit")).lower() == "fill" else "fit"
                 # Preview zoom/pan are transient viewer controls. Always start sane.
@@ -30552,6 +31098,7 @@ if QT_AVAILABLE:
                 self.show_timeline_waveforms = bool_from_project_value(data.get("show_timeline_waveforms", data.get("show_waveform", self.show_timeline_waveforms)), DEFAULT_SHOW_TIMELINE_WAVEFORMS)
                 self.preview_quality = normalize_preview_quality(data.get("preview_quality", getattr(self, "preview_quality", DEFAULT_PREVIEW_QUALITY)))
                 self.editor_font_size = sanitize_editor_font_size(data.get("editor_font_size", data.get("font_size", getattr(self, "editor_font_size", DEFAULT_EDITOR_FONT_SIZE))))
+                self.editor_theme = normalize_editor_theme(data.get("editor_theme", data.get("theme", getattr(self, "editor_theme", DEFAULT_EDITOR_THEME))))
                 self.active_transition_mask_path = str(data.get("active_transition_mask_path", getattr(self, "active_transition_mask_path", "")) or "")
                 self.audio_mix_protection_scale = 1.0
                 self._last_project_path = str(data.get("last_project_path", default_project_path()))
@@ -30577,6 +31124,7 @@ if QT_AVAILABLE:
                 if hasattr(self, "preview_quality_combo"):
                     self._refresh_preview_quality_combo()
                 self._apply_editor_font_size(getattr(self, "editor_font_size", DEFAULT_EDITOR_FONT_SIZE), save=False, update_control=True)
+                self.set_editor_theme(getattr(self, "editor_theme", DEFAULT_EDITOR_THEME), save=False)
                 self._refresh_canvas_label()
                 self.refresh_target_track_combo()
                 self.apply_layout_preset(self.layout_preset, save=False, layout_state=layout_state, log_change=False)
