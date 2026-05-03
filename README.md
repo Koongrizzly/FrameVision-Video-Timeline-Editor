@@ -18,7 +18,7 @@
 - A local/offline timeline editor, built with python, running in Pyside6.
 - Build a video from clips, images, audio, transitions, fades, transforms and more into a final MP4 exported media file.
 - Needs python, Numpy, Pillow and pyside6 to run, needs ffmpeg bundle extracted in /presets/bin or /bin/ to work
-- installer included, just run install.bat, it will download and install the miniconda env and all that is needed
+- installer included, just run install.bat, it will download and install the miniconda env, ffmpeg bundle and all that is needed
 - use run.bat after install to run the app
 - Both install.bat and run.bat give a windows warning, it's normal, throw the file in chat gpt to investigate if you have doubts :-)
 - Works on CPU, no expensive GPU needed.
