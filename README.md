@@ -1,18 +1,19 @@
-FrameVision Timeline Editor Help
+                                                FrameVision Timeline Editor
 ---
-This editor is a local/offline timeline editor for building a video from clips, images, audio, transitions, fades, transforms, and a final MP4 export. 
-Best beginner workflow: add media, drag clips to the timeline, trim or move them, preview the result, add transitions/fades if needed, then export the timeline. 
+- A local/offline timeline editor, less then 2 megabyte, built with python, running in Pyside6.
+- Build a video from clips, images, audio, transitions, fades, transforms and more into a final MP4 exported media file. 
+- Best beginner workflow: add media, drag clips to the timeline, trim or move them, preview the result, add transitions/fades if needed, then export the timeline. 
 ---
 Quick Start
 ---
-Click Add Media to load videos, images, or audio into the Media Bin. 
-Choose the Target track or drag media directly onto the timeline. 
-Click Text on the timeline toolbar when you want to create titles, captions, credits, or animated text overlays. 
-Use Play, Pause, Stop, Start, and End at the bottom to preview your edit. 
-Drag clip edges to trim. Drag the clip body to move clips along the timeline or between tracks. 
-Overlap two visual clips and apply a transition from the Transitions panel. 
-Use right-click menus for clip options such as split, delete, speed, volume, fades, and transforms. 
-Click Export Video when the timeline looks right. 
+- Click Add Media to load videos, images, or audio into the Media Bin. 
+- Choose the Target track or drag media directly onto the timeline. 
+- Click Text on the timeline toolbar when you want to create titles, captions, credits, or animated text overlays. 
+- Use Play, Pause, Stop, Start, and End at the bottom to preview your edit. 
+- Drag clip edges to trim. Drag the clip body to move clips along the timeline or between tracks. 
+- Overlap two visual clips and apply a transition from the Transitions panel. 
+- Use right-click menus for clip options such as split, delete, speed, volume, fades, transforms,... 
+- Click Export Video when the timeline looks right. 
 ---
 Top Toolbar
 ---
