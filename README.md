@@ -1,4 +1,16 @@
+<p align="center">
+  <img src="assets/Logo.jpg" alt="FrameVision Timeline Editor" width="900">
+</p>
+
+
+<p align="center">
+  <img src="assets/preview.jpg" alt="FrameVision Timeline Editor" width="900">
+</p>
+
+
                                                 FrameVision Timeline Editor
+
+
 ---
 - A local/offline timeline editor, less then 2 megabyte, built with python, running in Pyside6.
 - Build a video from clips, images, audio, transitions, fades, transforms and more into a final MP4 exported media file.
