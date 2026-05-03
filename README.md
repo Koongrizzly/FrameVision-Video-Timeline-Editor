@@ -2,6 +2,9 @@
   <img src="assets/Logo.jpg" alt="FrameVision Timeline Editor" width="900">
 </p>
 
+<p align="center">
+  <img src="assets/preview_dark.jpg" alt="FrameVision Timeline Editor" width="900">
+</p>
 
 <p align="center">
   <img src="assets/preview.jpg" alt="FrameVision Timeline Editor" width="900">
