@@ -12,10 +12,10 @@
 
 
 ---
-- A local/offline timeline editor, less then 2 megabyte, built with python, running in Pyside6.
+- A local/offline timeline editor, built with python, running in Pyside6.
 - Build a video from clips, images, audio, transitions, fades, transforms and more into a final MP4 exported media file.
-- Auto installer checks for miniconda and installs this when needed, next it installs everything else in it's own environment before installing python to run the app.
-- CPU driven, no need for an expensive GPU.
+- Needs python, Numpy and pyside6 to run, needs ffmpeg bundle extracted in /presets/bin or /bin/ to work (maybe installer later)
+- Works on CPU, no expensive GPU needed.
 ---
 Quick Start
 ---
