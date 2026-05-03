@@ -1,8 +1,9 @@
                                                 FrameVision Timeline Editor
 ---
 - A local/offline timeline editor, less then 2 megabyte, built with python, running in Pyside6.
-- Build a video from clips, images, audio, transitions, fades, transforms and more into a final MP4 exported media file. 
-- Best beginner workflow: add media, drag clips to the timeline, trim or move them, preview the result, add transitions/fades if needed, then export the timeline. 
+- Build a video from clips, images, audio, transitions, fades, transforms and more into a final MP4 exported media file.
+- Auto installer checks for miniconda and installs this when needed, next it installs everything else in it's own environment before installing python to run the app.
+- CPU driven, no need for an expensive GPU.
 ---
 Quick Start
 ---
