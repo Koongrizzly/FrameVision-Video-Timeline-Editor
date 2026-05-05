@@ -20122,7 +20122,6 @@ if QT_AVAILABLE:
                 self.debug_transitions_box,
                 self.refresh_transitions_btn,
                 self.transition_table,
-                self.effects_section,
             ]
             return panel
 
@@ -20220,10 +20219,14 @@ if QT_AVAILABLE:
                 pass
             self.classic_left_splitter = None
 
+        def _middle_effects_column_collapsed(self) -> bool:
+            """The shared Transitions/Effects column collapses only when both sections are collapsed."""
+            return bool(getattr(self, "transitions_collapsed", False)) and bool(getattr(self, "effects_collapsed", False))
+
         def _top_band_collapsed_flags(self) -> List[bool]:
             return [
                 bool(getattr(self, "media_collapsed", False)),
-                bool(getattr(self, "transitions_collapsed", False)),
+                self._middle_effects_column_collapsed(),
                 bool(getattr(self, "preview_collapsed", False)),
             ]
 
@@ -20243,7 +20246,7 @@ if QT_AVAILABLE:
         def _top_band_panel_specs(self) -> List[Tuple[QWidget, bool, int]]:
             return [
                 (self.media_panel, bool(getattr(self, "media_collapsed", False)), 220),
-                (self.transitions_panel, bool(getattr(self, "transitions_collapsed", False)), 180),
+                (self.transitions_panel, self._middle_effects_column_collapsed(), 180),
                 (self.preview_section, bool(getattr(self, "preview_collapsed", False)), 260),
             ]
 
@@ -20676,7 +20679,10 @@ if QT_AVAILABLE:
                 self._refresh_top_band_splitter_sizes(top_sizes)
             if preset == LAYOUT_PRESET_CLASSIC and getattr(self, "classic_left_splitter", None) is not None:
                 try:
-                    left_sizes = [34 if bool(getattr(self, "media_collapsed", False)) else 1, 34 if bool(getattr(self, "transitions_collapsed", False)) else 1]
+                    left_sizes = [
+                        34 if bool(getattr(self, "media_collapsed", False)) else 1,
+                        34 if self._middle_effects_column_collapsed() else 1,
+                    ]
                     self.classic_left_splitter.setSizes(left_sizes)
                 except Exception:
                     pass
@@ -26036,6 +26042,39 @@ if QT_AVAILABLE:
             else:
                 self._refresh_top_band_splitter_sizes()
 
+        def _refresh_transitions_effects_column_limits(self) -> None:
+            """Keep Transitions and Effects independent inside their shared column."""
+            transitions_collapsed = bool(getattr(self, "transitions_collapsed", False))
+            effects_collapsed = bool(getattr(self, "effects_collapsed", False))
+            middle_collapsed = transitions_collapsed and effects_collapsed
+            try:
+                if hasattr(self, "transition_table"):
+                    self.transition_table.setMaximumHeight(16777215 if effects_collapsed else 210)
+            except Exception:
+                pass
+            try:
+                if hasattr(self, "effects_section"):
+                    self._set_vertical_panel_collapsed(self.effects_section, effects_collapsed, min_open_height=0)
+                    self._set_horizontal_panel_collapsed(self.effects_section, False, min_open_width=180)
+            except Exception:
+                pass
+            try:
+                if hasattr(self, "transitions_panel"):
+                    parent = self.transitions_panel.parent()
+                    in_top_band = parent is getattr(self, "top_band_splitter", None)
+                    in_classic_left = parent is getattr(self, "classic_left_splitter", None)
+                    if in_top_band:
+                        self._set_horizontal_panel_collapsed(self.transitions_panel, middle_collapsed, min_open_width=180)
+                        self._set_vertical_panel_collapsed(self.transitions_panel, False)
+                    elif in_classic_left:
+                        self._set_vertical_panel_collapsed(self.transitions_panel, middle_collapsed)
+                        self._set_horizontal_panel_collapsed(self.transitions_panel, False, min_open_width=220)
+                    else:
+                        self._set_vertical_panel_collapsed(self.transitions_panel, middle_collapsed)
+                        self._set_horizontal_panel_collapsed(self.transitions_panel, False, min_open_width=180)
+            except Exception:
+                pass
+
         def _apply_transitions_collapsed(self, save: bool = False) -> None:
             collapsed = bool(getattr(self, "transitions_collapsed", False))
             widgets = getattr(self, "transitions_content_widgets", [])
@@ -26047,19 +26086,7 @@ if QT_AVAILABLE:
             if hasattr(self, "transitions_collapse_btn"):
                 self.transitions_collapse_btn.setText("▼" if collapsed else "▲")
                 self.transitions_collapse_btn.setToolTip("Expand Transitions" if collapsed else "Collapse Transitions")
-            if hasattr(self, "transitions_panel"):
-                parent = self.transitions_panel.parent()
-                in_top_band = parent is getattr(self, "top_band_splitter", None)
-                in_classic_left = parent is getattr(self, "classic_left_splitter", None)
-                if in_top_band:
-                    self._set_horizontal_panel_collapsed(self.transitions_panel, collapsed, min_open_width=180)
-                    self._set_vertical_panel_collapsed(self.transitions_panel, False)
-                elif in_classic_left:
-                    self._set_vertical_panel_collapsed(self.transitions_panel, collapsed)
-                    self._set_horizontal_panel_collapsed(self.transitions_panel, False, min_open_width=220)
-                else:
-                    self._set_vertical_panel_collapsed(self.transitions_panel, collapsed)
-                    self._set_horizontal_panel_collapsed(self.transitions_panel, False, min_open_width=180)
+            self._refresh_transitions_effects_column_limits()
             if save:
                 self._refresh_layout_after_panel_toggle("transitions collapsed/expanded")
                 self.save_editor_state()
@@ -26078,9 +26105,13 @@ if QT_AVAILABLE:
             if hasattr(self, "effects_collapse_btn"):
                 self.effects_collapse_btn.setText("▼" if collapsed else "▲")
                 self.effects_collapse_btn.setToolTip("Expand Effects" if collapsed else "Collapse Effects")
+            self._refresh_transitions_effects_column_limits()
             if save:
+                self._refresh_layout_after_panel_toggle("effects collapsed/expanded")
                 self.save_editor_state()
                 self.log("Effects collapsed." if collapsed else "Effects expanded.")
+            else:
+                self._refresh_top_band_splitter_sizes()
 
         def _set_section_collapsed(self, section: QWidget, content_widgets: List[QWidget], button: QPushButton, collapsed: bool, name: str) -> None:
             for widget in content_widgets:
