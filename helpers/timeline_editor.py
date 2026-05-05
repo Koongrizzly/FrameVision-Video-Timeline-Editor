@@ -190,6 +190,19 @@ TEXT_EASING_LABELS = [
 ]
 TRANSITION_DRAG_MIME_TYPE = "application/x-framevision-transition"
 TRANSITION_MASK_EXTS = {".png", ".jpg", ".jpeg"}
+
+EFFECT_PRESET_FOLDER = "presets/effects"
+EFFECT_PRESETS_JSON_NAME = "transform_presets.json"
+EFFECT_PRESET_MODE_INTRO = "intro"
+EFFECT_PRESET_MODE_OUTRO = "outro"
+EFFECT_PRESET_MODE_WHOLE = "whole"
+EFFECT_PRESET_MODES = {EFFECT_PRESET_MODE_INTRO, EFFECT_PRESET_MODE_OUTRO, EFFECT_PRESET_MODE_WHOLE}
+EFFECT_PRESET_MODE_LABELS = [
+    ("Intro", EFFECT_PRESET_MODE_INTRO),
+    ("Outro", EFFECT_PRESET_MODE_OUTRO),
+    ("Whole clip", EFFECT_PRESET_MODE_WHOLE),
+]
+
 DEFAULT_TRANSITION_DURATION = 1.0
 SHORT_TRANSITION_DURATION = 0.5
 LONG_TRANSITION_DURATION = 2.0
@@ -340,6 +353,7 @@ def default_layout_state_for_preset(value: Any) -> Dict[str, Any]:
         "timeline_collapsed": False,
         "preview_collapsed": False,
         "transitions_collapsed": False,
+        "effects_collapsed": False,
         # v37: logs are still one click away, but they no longer steal editor space by default.
         "logs_collapsed": True,
         "main_splitter_sizes": [1, 1200],
@@ -397,6 +411,7 @@ def sanitize_layout_state(data: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     state["timeline_collapsed"] = bool_from_project_value(source.get("timeline_collapsed", state["timeline_collapsed"]), state["timeline_collapsed"])
     state["preview_collapsed"] = bool_from_project_value(source.get("preview_collapsed", state["preview_collapsed"]), state["preview_collapsed"])
     state["transitions_collapsed"] = bool_from_project_value(source.get("transitions_collapsed", state["transitions_collapsed"]), state["transitions_collapsed"])
+    state["effects_collapsed"] = bool_from_project_value(source.get("effects_collapsed", state["effects_collapsed"]), state["effects_collapsed"])
     state["logs_collapsed"] = bool_from_project_value(source.get("logs_collapsed", state["logs_collapsed"]), state["logs_collapsed"])
     state["main_splitter_sizes"] = _sanitize_int_list(source.get("main_splitter_sizes"), list(state["main_splitter_sizes"]), 2, 2)
     state["right_splitter_sizes"] = _sanitize_int_list(source.get("right_splitter_sizes"), list(state["right_splitter_sizes"]), 2, 3)
@@ -3134,6 +3149,362 @@ def transition_mask_asset_by_name(mask_assets: List[Dict[str, Any]], mask_name_o
         if wanted_path and wanted_path == path:
             return asset
     return None
+
+
+
+def effect_presets_dir(root: Optional[Path] = None) -> Path:
+    base = Path(root) if root is not None else framevision_root()
+    return base / EFFECT_PRESET_FOLDER
+
+
+def effect_presets_json_path(root: Optional[Path] = None) -> Path:
+    return effect_presets_dir(root) / EFFECT_PRESETS_JSON_NAME
+
+
+def _effect_preset_point(t: float, **values: Any) -> Dict[str, Any]:
+    data: Dict[str, Any] = {"t": float(clamp(safe_float(t, 0.0), 0.0, 1.0))}
+    data.update(values)
+    return data
+
+
+def default_effect_preset_payload() -> Dict[str, Any]:
+    """Human-editable factory presets for visual transform keyframe shortcuts.
+
+    Points are normalized from 0.0 to 1.0 and are authored as "from -> resting".
+    Intro uses them as-is. Outro reverses the time direction so the resting state
+    moves toward the first point. Whole clip spreads them over the whole clip.
+    x_canvas/y_canvas are offsets relative to the project canvas size; x_offset
+    and y_offset are fixed pixel offsets. scale_mult and opacity_mult are applied
+    to the clip's current resting transform.
+    """
+    presets: List[Dict[str, Any]] = [
+        {
+            "id": "fly_in_left",
+            "name": "Fly in left",
+            "description": "Starts left of frame and settles into the current transform.",
+            "points": [
+                _effect_preset_point(0.0, x_canvas=-1.2, opacity_mult=0.95),
+                _effect_preset_point(0.78, x_canvas=0.045),
+                _effect_preset_point(0.90, x_canvas=-0.018),
+                _effect_preset_point(1.0),
+            ],
+        },
+        {
+            "id": "fly_in_right",
+            "name": "Fly in right",
+            "description": "Starts right of frame and settles into the current transform.",
+            "points": [
+                _effect_preset_point(0.0, x_canvas=1.2, opacity_mult=0.95),
+                _effect_preset_point(0.78, x_canvas=-0.045),
+                _effect_preset_point(0.90, x_canvas=0.018),
+                _effect_preset_point(1.0),
+            ],
+        },
+        {
+            "id": "fly_in_top",
+            "name": "Fly in top",
+            "description": "Starts above frame and settles into the current transform.",
+            "points": [
+                _effect_preset_point(0.0, y_canvas=-1.2, opacity_mult=0.95),
+                _effect_preset_point(0.78, y_canvas=0.065),
+                _effect_preset_point(0.90, y_canvas=-0.025),
+                _effect_preset_point(1.0),
+            ],
+        },
+        {
+            "id": "fly_in_bottom",
+            "name": "Fly in bottom",
+            "description": "Starts below frame and settles into the current transform.",
+            "points": [
+                _effect_preset_point(0.0, y_canvas=1.2, opacity_mult=0.95),
+                _effect_preset_point(0.78, y_canvas=-0.065),
+                _effect_preset_point(0.90, y_canvas=0.025),
+                _effect_preset_point(1.0),
+            ],
+        },
+        {
+            "id": "fast_side_slam_vibration",
+            "name": "Fast side slam + vibration settle",
+            "description": "Fast horizontal entrance with a few short settle vibrations.",
+            "points": [
+                _effect_preset_point(0.0, x_canvas=-1.35, rotation_delta=-4.0),
+                _effect_preset_point(0.55, x_canvas=0.10, rotation_delta=2.0),
+                _effect_preset_point(0.68, x_canvas=-0.045, rotation_delta=-1.4),
+                _effect_preset_point(0.80, x_canvas=0.022, rotation_delta=0.7),
+                _effect_preset_point(0.91, x_canvas=-0.010, rotation_delta=-0.35),
+                _effect_preset_point(1.0),
+            ],
+        },
+        {
+            "id": "spin_in_grow",
+            "name": "Spin in + grow",
+            "description": "Small rotated entrance that grows and settles into the current transform.",
+            "points": [
+                _effect_preset_point(0.0, scale_mult=0.18, rotation_delta=-180.0, opacity=0.0),
+                _effect_preset_point(0.64, scale_mult=1.12, rotation_delta=18.0, opacity_mult=1.0),
+                _effect_preset_point(0.82, scale_mult=0.96, rotation_delta=-6.0),
+                _effect_preset_point(1.0),
+            ],
+        },
+        {
+            "id": "tiny_offscreen_rotate_full",
+            "name": "Tiny offscreen → rotate → full size",
+            "description": "Starts tiny outside the frame, rotates in, and finishes at the current transform.",
+            "points": [
+                _effect_preset_point(0.0, x_canvas=-0.75, y_canvas=0.45, scale_mult=0.12, rotation_delta=-240.0, opacity=0.0),
+                _effect_preset_point(0.70, x_canvas=0.035, y_canvas=-0.025, scale_mult=1.10, rotation_delta=16.0, opacity_mult=1.0),
+                _effect_preset_point(0.88, x_canvas=-0.010, y_canvas=0.008, scale_mult=0.97, rotation_delta=-4.0),
+                _effect_preset_point(1.0),
+            ],
+        },
+        {
+            "id": "pop_zoom_in",
+            "name": "Pop zoom in",
+            "description": "Quick scale pop with a small overshoot.",
+            "points": [
+                _effect_preset_point(0.0, scale_mult=0.35, opacity=0.0),
+                _effect_preset_point(0.55, scale_mult=1.16, opacity_mult=1.0),
+                _effect_preset_point(0.76, scale_mult=0.94),
+                _effect_preset_point(1.0),
+            ],
+        },
+        {
+            "id": "smooth_zoom_in",
+            "name": "Smooth zoom in",
+            "description": "Slowly zooms into the current transform.",
+            "points": [
+                _effect_preset_point(0.0, scale_mult=0.88),
+                _effect_preset_point(1.0),
+            ],
+        },
+        {
+            "id": "smooth_zoom_out",
+            "name": "Smooth zoom out",
+            "description": "Slowly zooms out into the current transform.",
+            "points": [
+                _effect_preset_point(0.0, scale_mult=1.12),
+                _effect_preset_point(1.0),
+            ],
+        },
+        {
+            "id": "gentle_float",
+            "name": "Gentle float",
+            "description": "Soft up/down drifting motion around the current transform.",
+            "points": [
+                _effect_preset_point(0.0),
+                _effect_preset_point(0.25, y_canvas=-0.018, rotation_delta=-0.7),
+                _effect_preset_point(0.50, y_canvas=0.012, rotation_delta=0.5),
+                _effect_preset_point(0.75, y_canvas=-0.010, rotation_delta=-0.35),
+                _effect_preset_point(1.0),
+            ],
+        },
+        {
+            "id": "subtle_shake",
+            "name": "Subtle shake",
+            "description": "Small handheld vibration around the current transform.",
+            "points": [
+                _effect_preset_point(0.0),
+                _effect_preset_point(0.16, x_offset=10.0, y_offset=-5.0, rotation_delta=0.8),
+                _effect_preset_point(0.32, x_offset=-8.0, y_offset=4.0, rotation_delta=-0.7),
+                _effect_preset_point(0.48, x_offset=6.0, y_offset=-3.0, rotation_delta=0.45),
+                _effect_preset_point(0.64, x_offset=-4.0, y_offset=3.0, rotation_delta=-0.35),
+                _effect_preset_point(0.82, x_offset=2.0, y_offset=-1.0, rotation_delta=0.15),
+                _effect_preset_point(1.0),
+            ],
+        },
+        {
+            "id": "pulse_scale",
+            "name": "Pulse scale",
+            "description": "Small scale pulse around the current transform.",
+            "points": [
+                _effect_preset_point(0.0),
+                _effect_preset_point(0.25, scale_mult=1.075),
+                _effect_preset_point(0.50, scale_mult=0.985),
+                _effect_preset_point(0.75, scale_mult=1.04),
+                _effect_preset_point(1.0),
+            ],
+        },
+        {
+            "id": "fade_in_scale_up",
+            "name": "Fade in + scale up",
+            "description": "Fades in while growing into the current transform.",
+            "points": [
+                _effect_preset_point(0.0, scale_mult=0.72, opacity=0.0),
+                _effect_preset_point(1.0),
+            ],
+        },
+        {
+            "id": "fade_out_scale_down",
+            "name": "Fade out + scale down",
+            "description": "Use in Outro mode for a clean fade/shrink exit.",
+            "points": [
+                _effect_preset_point(0.0, scale_mult=0.72, opacity=0.0),
+                _effect_preset_point(1.0),
+            ],
+        },
+    ]
+    return {"version": 1, "type": "framevision_transform_effect_presets", "presets": presets}
+
+
+def _effect_preset_slug(value: Any) -> str:
+    raw = str(value or "").strip().lower()
+    raw = re.sub(r"[^a-z0-9]+", "_", raw).strip("_")
+    return raw or uuid.uuid4().hex[:10]
+
+
+def normalize_effect_preset(raw: Any) -> Optional[Dict[str, Any]]:
+    if not isinstance(raw, dict):
+        return None
+    name = str(raw.get("name") or raw.get("label") or raw.get("id") or "Effect preset").strip()
+    preset_id = _effect_preset_slug(raw.get("id") or name)
+    points: List[Dict[str, Any]] = []
+    for item in raw.get("points", raw.get("keyframes", [])) if isinstance(raw.get("points", raw.get("keyframes", [])), list) else []:
+        if not isinstance(item, dict):
+            continue
+        point = dict(item)
+        point["t"] = float(clamp(safe_float(point.get("t", point.get("time", 0.0)), 0.0), 0.0, 1.0))
+        points.append(point)
+    if not points:
+        return None
+    points.sort(key=lambda point: float(point.get("t", 0.0)))
+    if float(points[-1].get("t", 0.0)) < 0.999:
+        points.append({"t": 1.0})
+    return {
+        "id": preset_id,
+        "name": name or preset_id.replace("_", " ").title(),
+        "description": str(raw.get("description") or raw.get("tooltip") or ""),
+        "points": points,
+    }
+
+
+def load_effect_presets(root: Optional[Path] = None, create_missing: bool = True) -> List[Dict[str, Any]]:
+    path = effect_presets_json_path(root)
+    payload = default_effect_preset_payload()
+    if create_missing:
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            if not path.exists():
+                path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        except Exception:
+            pass
+    data: Any = payload
+    try:
+        if path.exists():
+            data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        data = payload
+    raw_presets = data.get("presets", []) if isinstance(data, dict) else []
+    presets = [preset for preset in (normalize_effect_preset(item) for item in raw_presets) if preset is not None]
+    if not presets:
+        presets = [preset for preset in (normalize_effect_preset(item) for item in payload.get("presets", [])) if preset is not None]
+    return presets
+
+
+def normalize_effect_preset_mode(value: Any) -> str:
+    raw = str(value or "").strip().lower().replace(" ", "_").replace("-", "_")
+    if raw in {"out", "exit", "outro", EFFECT_PRESET_MODE_OUTRO}:
+        return EFFECT_PRESET_MODE_OUTRO
+    if raw in {"all", "whole", "whole_clip", "loop", EFFECT_PRESET_MODE_WHOLE}:
+        return EFFECT_PRESET_MODE_WHOLE
+    return EFFECT_PRESET_MODE_INTRO
+
+
+def _effect_preset_canvas_size(project: Optional["TimelineProject"]) -> Tuple[int, int]:
+    if project is None:
+        return DEFAULT_PROJECT_CANVAS_WIDTH, DEFAULT_PROJECT_CANVAS_HEIGHT
+    return normalize_project_canvas_size(getattr(project, "canvas_width", DEFAULT_PROJECT_CANVAS_WIDTH), getattr(project, "canvas_height", DEFAULT_PROJECT_CANVAS_HEIGHT))
+
+
+def _effect_point_transform(rest_transform: Dict[str, Any], point: Dict[str, Any], canvas_width: int, canvas_height: int) -> Dict[str, Any]:
+    rest = normalize_visual_keyframe({"time": 0.0, **dict(rest_transform)}, None) or {"time": 0.0, **default_visual_transform()}
+    x = safe_float(rest.get("transform_x", 0.0), 0.0)
+    y = safe_float(rest.get("transform_y", 0.0), 0.0)
+    if "x" in point:
+        x = safe_float(point.get("x"), x)
+    if "y" in point:
+        y = safe_float(point.get("y"), y)
+    x += safe_float(point.get("x_offset", 0.0), 0.0) + safe_float(point.get("x_canvas", 0.0), 0.0) * float(canvas_width)
+    y += safe_float(point.get("y_offset", 0.0), 0.0) + safe_float(point.get("y_canvas", 0.0), 0.0) * float(canvas_height)
+
+    if "scale" in point:
+        scale = clamp_transform_scale(point.get("scale"), 1.0)
+    else:
+        scale = clamp_transform_scale(safe_float(rest.get("transform_scale", 1.0), 1.0) * safe_float(point.get("scale_mult", 1.0), 1.0), 1.0)
+
+    if "rotation" in point:
+        rotation = normalize_transform_rotation(point.get("rotation"))
+    else:
+        rotation = normalize_transform_rotation(safe_float(rest.get("transform_rotation", 0.0), 0.0) + safe_float(point.get("rotation_delta", 0.0), 0.0))
+
+    if "opacity" in point:
+        opacity = clamp_transform_opacity(point.get("opacity"), 1.0)
+    else:
+        opacity = clamp_transform_opacity(safe_float(rest.get("transform_opacity", 1.0), 1.0) * safe_float(point.get("opacity_mult", 1.0), 1.0), 1.0)
+
+    return {
+        "transform_x": float(x),
+        "transform_y": float(y),
+        "transform_scale": float(scale),
+        "transform_rotation": float(rotation),
+        "transform_opacity": float(opacity),
+        "transform_fit_mode": normalize_transform_fit_mode(rest.get("transform_fit_mode", "fit")),
+    }
+
+
+def effect_preset_keyframes_for_clip(
+    clip: Optional["Clip"],
+    preset: Dict[str, Any],
+    mode: Any,
+    duration: Any,
+    rest_transform: Optional[Dict[str, Any]] = None,
+    project: Optional["TimelineProject"] = None,
+) -> List[Dict[str, Any]]:
+    if clip is None or not visual_keyframes_supported_for_clip(clip):
+        return []
+    clip_duration = max(0.0, safe_float(getattr(clip, "duration", 0.0), 0.0))
+    if clip_duration <= 0.0005:
+        return []
+    points = list((preset or {}).get("points", [])) if isinstance(preset, dict) else []
+    normalized_points = [point for point in (normalize_effect_preset({"id": "tmp", "name": "tmp", "points": points}) or {}).get("points", [])]
+    if not normalized_points:
+        return []
+    apply_mode = normalize_effect_preset_mode(mode)
+    effect_duration = clip_duration if apply_mode == EFFECT_PRESET_MODE_WHOLE else min(clip_duration, max(0.05, safe_float(duration, 1.0)))
+    start_time = 0.0 if apply_mode != EFFECT_PRESET_MODE_OUTRO else max(0.0, clip_duration - effect_duration)
+    rest = dict(rest_transform) if isinstance(rest_transform, dict) else normalize_clip_visual_transform(clip)
+    canvas_w, canvas_h = _effect_preset_canvas_size(project)
+    keyframes: List[Dict[str, Any]] = []
+    for point in normalized_points:
+        t_norm = float(clamp(safe_float(point.get("t", 0.0), 0.0), 0.0, 1.0))
+        if apply_mode == EFFECT_PRESET_MODE_OUTRO:
+            local_time = start_time + (1.0 - t_norm) * effect_duration
+        else:
+            local_time = start_time + t_norm * effect_duration
+        transform = _effect_point_transform(rest, point, canvas_w, canvas_h)
+        keyframes.append({"time": float(clamp(local_time, 0.0, clip_duration)), **transform})
+    return normalize_visual_keyframes(keyframes, clip_duration)
+
+
+def apply_effect_preset_to_clip(
+    clip: Optional["Clip"],
+    preset: Dict[str, Any],
+    mode: Any,
+    duration: Any,
+    *,
+    replace_existing: bool = False,
+    rest_transform: Optional[Dict[str, Any]] = None,
+    project: Optional["TimelineProject"] = None,
+) -> Tuple[bool, str, int]:
+    if clip is None or not visual_keyframes_supported_for_clip(clip):
+        return False, "select a video or image clip", 0
+    if clip_has_visual_keyframes(clip) and not bool(replace_existing):
+        return False, "selected clip already has visual keyframes; enable Replace existing visual keyframes", visual_keyframe_count(clip)
+    keyframes = effect_preset_keyframes_for_clip(clip, preset, mode, duration, rest_transform=rest_transform, project=project)
+    if not keyframes:
+        return False, "could not create effect keyframes", 0
+    clip.visual_keyframes = keyframes
+    apply_visual_transform_to_clip(clip, default_visual_transform())
+    return True, "effect preset applied", len(keyframes)
 
 
 def transition_drag_payload_from_asset(asset: Dict[str, Any]) -> Dict[str, Any]:
@@ -11409,6 +11780,8 @@ def default_project_editor_state() -> Dict[str, Any]:
         "media_collapsed": False,
         "timeline_collapsed": False,
         "preview_collapsed": False,
+        "transitions_collapsed": False,
+        "effects_collapsed": False,
         "logs_collapsed": True,
         "main_splitter_sizes": [1, 1200],
         "right_splitter_sizes": [360, 520, 34],
@@ -11446,6 +11819,8 @@ def sanitize_project_editor_state(data: Optional[Dict[str, Any]]) -> Dict[str, A
         "media_collapsed",
         "timeline_collapsed",
         "preview_collapsed",
+        "transitions_collapsed",
+        "effects_collapsed",
         "logs_collapsed",
         "main_splitter_sizes",
         "right_splitter_sizes",
@@ -16855,6 +17230,98 @@ if QT_AVAILABLE:
 
 
 
+    class EffectPresetTable(QTableWidget):
+        """Compact browser for JSON transform-keyframe effect presets."""
+
+        def __init__(self, editor: "TimelineEditorWindow") -> None:
+            super().__init__(0, 1, editor)
+            self.editor = editor
+            self.setHorizontalHeaderLabels(["Preset"])
+            self.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+            self.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+            self.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+            self.verticalHeader().setVisible(False)
+            self.horizontalHeader().setStretchLastSection(True)
+            self.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+            self.setAlternatingRowColors(True)
+            self.setMinimumHeight(92)
+            self.setMaximumHeight(170)
+            self.verticalHeader().setDefaultSectionSize(30)
+            self.itemSelectionChanged.connect(self._selection_changed)
+            self.doubleClicked.connect(lambda *_: self.editor.apply_selected_effect_preset())
+            self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+            self.customContextMenuRequested.connect(self._show_menu)
+
+        def selected_preset(self) -> Optional[Dict[str, Any]]:
+            row = self.currentRow()
+            if row < 0:
+                return None
+            item = self.item(row, 0)
+            if item is None:
+                return None
+            preset_id = str(item.data(Qt.ItemDataRole.UserRole) or "")
+            return self.editor._effect_preset_by_id(preset_id)
+
+        def refresh(self) -> None:
+            previous_id = str(getattr(self.editor, "active_effect_preset_id", "") or "")
+            self.blockSignals(True)
+            try:
+                self.setRowCount(0)
+                presets = list(getattr(self.editor, "effect_presets", []) or [])
+                if not presets:
+                    self.insertRow(0)
+                    item = QTableWidgetItem("No effect presets found")
+                    item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
+                    item.setToolTip(f"Effect preset JSON folder:\n{effect_presets_dir(framevision_root())}")
+                    self.setItem(0, 0, item)
+                    self.editor.active_effect_preset_id = ""
+                    return
+                selected_row = 0
+                for row, preset in enumerate(presets):
+                    self.insertRow(row)
+                    preset_id = str(preset.get("id") or "")
+                    name = str(preset.get("name") or preset_id or "Effect preset")
+                    description = str(preset.get("description") or "")
+                    item = QTableWidgetItem(name)
+                    item.setData(Qt.ItemDataRole.UserRole, preset_id)
+                    item.setToolTip(f"{name}\n{description}".strip())
+                    self.setItem(row, 0, item)
+                    if previous_id and preset_id == previous_id:
+                        selected_row = row
+                if self.rowCount() > 0:
+                    self.selectRow(selected_row)
+                    item = self.item(selected_row, 0)
+                    self.editor.active_effect_preset_id = str(item.data(Qt.ItemDataRole.UserRole) or "") if item is not None else ""
+            finally:
+                self.blockSignals(False)
+
+        def _selection_changed(self) -> None:
+            preset = self.selected_preset()
+            if preset:
+                self.editor.active_effect_preset_id = str(preset.get("id") or "")
+
+        def _show_menu(self, pos: QPoint) -> None:
+            menu = QMenu(self)
+            apply_action = menu.addAction("Apply selected effect preset")
+            refresh_action = menu.addAction("Refresh effect presets")
+            open_folder_action = menu.addAction("Open effect presets folder")
+            if self.selected_preset() is None:
+                apply_action.setEnabled(False)
+            chosen = menu.exec(self.mapToGlobal(pos))
+            if chosen == apply_action:
+                self.editor.apply_selected_effect_preset()
+            elif chosen == refresh_action:
+                self.editor.refresh_effect_presets(create_missing=True, log_result=True)
+            elif chosen == open_folder_action:
+                folder = effect_presets_dir(framevision_root())
+                try:
+                    folder.mkdir(parents=True, exist_ok=True)
+                except Exception:
+                    pass
+                QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder)))
+
+
+
     class TimelineCanvas(QWidget):
         ruler_height = 42
         track_height = 72
@@ -18348,6 +18815,9 @@ if QT_AVAILABLE:
             self.timeline_collapsed = False
             self.preview_collapsed = False
             self.transitions_collapsed = False
+            self.effects_collapsed = False
+            self.effect_presets: List[Dict[str, Any]] = []
+            self.active_effect_preset_id = ""
             self.embed_preview_enabled = True
             self.logs_collapsed = False
             self.target_track_id = self.project.default_track_id_for_media_type("video")
@@ -18562,6 +19032,7 @@ if QT_AVAILABLE:
             self.load_editor_state()
             self._loading_settings = False
             self.refresh_transition_masks(create_missing=True, log_result=True)
+            self.refresh_effect_presets(create_missing=True, log_result=True)
             self.refresh_text_assets_from_disk(log_result=True)
 
             ok, logs = run_self_tests()
@@ -18818,6 +19289,22 @@ if QT_AVAILABLE:
                         width: 15px;
                         height: 15px;
                     }
+                    QDialog, QInputDialog {
+                        background-color: #f4f7fb;
+                        color: #16222d;
+                    }
+                    QDialog QLabel, QInputDialog QLabel {
+                        background-color: transparent;
+                        color: #16222d;
+                    }
+                    QDialog QCheckBox, QInputDialog QCheckBox {
+                        background-color: transparent;
+                        color: #16222d;
+                    }
+                    QDialog QGroupBox, QInputDialog QGroupBox {
+                        background-color: transparent;
+                        color: #16222d;
+                    }
                     QMessageBox {
                         background-color: #f4f7fb;
                         color: #16222d;
@@ -18992,6 +19479,22 @@ if QT_AVAILABLE:
                 QCheckBox::indicator {
                     width: 15px;
                     height: 15px;
+                }
+                QDialog, QInputDialog {
+                    background-color: #071018;
+                    color: #e8f2f8;
+                }
+                QDialog QLabel, QInputDialog QLabel {
+                    background-color: transparent;
+                    color: #e8f2f8;
+                }
+                QDialog QCheckBox, QInputDialog QCheckBox {
+                    background-color: transparent;
+                    color: #e8f2f8;
+                }
+                QDialog QGroupBox, QInputDialog QGroupBox {
+                    background-color: transparent;
+                    color: #e8f2f8;
                 }
                 QMessageBox {
                     background-color: #071018;
@@ -19558,12 +20061,68 @@ if QT_AVAILABLE:
             layout.addWidget(header)
 
             self.transition_table = TransitionMaskTable(self)
+            self.transition_table.setMaximumHeight(210)
             layout.addWidget(self.transition_table, 1)
 
+            self.effects_section = QWidget(panel)
+            effects_layout = QVBoxLayout(self.effects_section)
+            effects_layout.setContentsMargins(0, 0, 0, 0)
+            effects_layout.setSpacing(5)
+
+            effects_header, self.effects_title_label, self.effects_collapse_btn = self._make_section_header("Effects", "▲")
+            self.effects_collapse_btn.clicked.connect(self.toggle_effects_panel)
+            self.refresh_effects_btn = QPushButton("Refresh")
+            self.refresh_effects_btn.setToolTip("Reload transform effect presets from presets/effects/.")
+            self.refresh_effects_btn.clicked.connect(lambda: self.refresh_effect_presets(create_missing=True, log_result=True))
+            self.apply_effect_btn = QPushButton("Apply")
+            self.apply_effect_btn.setToolTip("Apply the selected effect preset to the selected visual clip")
+            self.apply_effect_btn.clicked.connect(self.apply_selected_effect_preset)
+            try:
+                effects_header.layout().addWidget(self.refresh_effects_btn)
+                effects_header.layout().addWidget(self.apply_effect_btn)
+            except Exception:
+                pass
+            effects_layout.addWidget(effects_header)
+
+            self.effects_controls_widget = QWidget(self.effects_section)
+            effects_controls = QHBoxLayout(self.effects_controls_widget)
+            effects_controls.setContentsMargins(0, 0, 0, 0)
+            effects_controls.setSpacing(6)
+            self.effect_duration_spin = QDoubleSpinBox(self.effects_section)
+            self.effect_duration_spin.setRange(0.05, 60.0)
+            self.effect_duration_spin.setDecimals(2)
+            self.effect_duration_spin.setSingleStep(0.25)
+            self.effect_duration_spin.setValue(1.0)
+            self.effect_duration_spin.setSuffix("s")
+            self.effect_duration_spin.setToolTip("Intro/Outro duration. Whole clip mode ignores this and uses the full clip.")
+            self.effect_mode_combo = QComboBox(self.effects_section)
+            for label, value in EFFECT_PRESET_MODE_LABELS:
+                self.effect_mode_combo.addItem(label, value)
+            self.effect_replace_keyframes_box = QCheckBox("Replace existing visual keyframes", self.effects_section)
+            self.effect_replace_keyframes_box.setChecked(False)
+            self.effect_replace_keyframes_box.setToolTip("Off = protect existing visual keyframes. On = replace only this clip's visual transform keyframes.")
+            effects_controls.addWidget(QLabel("Duration:", self.effects_section))
+            effects_controls.addWidget(self.effect_duration_spin)
+            effects_controls.addWidget(QLabel("Mode:", self.effects_section))
+            effects_controls.addWidget(self.effect_mode_combo)
+            effects_controls.addWidget(self.effect_replace_keyframes_box, 1)
+            effects_layout.addWidget(self.effects_controls_widget)
+
+            self.effect_table = EffectPresetTable(self)
+            effects_layout.addWidget(self.effect_table, 1)
+            layout.addWidget(self.effects_section, 1)
+
+            self.effects_content_widgets = [
+                self.refresh_effects_btn,
+                self.apply_effect_btn,
+                self.effects_controls_widget,
+                self.effect_table,
+            ]
             self.transitions_content_widgets = [
                 self.debug_transitions_box,
                 self.refresh_transitions_btn,
                 self.transition_table,
+                self.effects_section,
             ]
             return panel
 
@@ -20140,10 +20699,12 @@ if QT_AVAILABLE:
                 self.timeline_collapsed = bool(state.get("timeline_collapsed", False))
                 self.preview_collapsed = bool(state.get("preview_collapsed", False))
                 self.transitions_collapsed = bool(state.get("transitions_collapsed", False))
+                self.effects_collapsed = bool(state.get("effects_collapsed", False))
                 self.logs_collapsed = bool(state.get("logs_collapsed", False))
                 if preset_key == LAYOUT_PRESET_EDITING:
                     self.media_collapsed = True
                     self.transitions_collapsed = True
+                    self.effects_collapsed = True
                     self.preview_collapsed = True
                     self.logs_collapsed = True
                 self._rebuild_workspace_for_layout(preset_key)
@@ -22928,6 +23489,31 @@ if QT_AVAILABLE:
                     return
                 self._paint_preview_image_to_label(self.preview_fullscreen_label, image)
 
+        def _refresh_transition_preview_or_repaint_after_exit(self) -> bool:
+            """Keep live preview from holding a stale transition composite.
+
+            Image clips are timer-clock visuals, so the QLabel can otherwise keep
+            showing the last PNG-transition composite when the timer skips past
+            the exact final transition frame. Export is unaffected; this is only
+            a live-preview repaint guard.
+            """
+            state = transition_preview_state(self.project, getattr(self, "playhead_time", 0.0))
+            if state:
+                self._refresh_preview_pixmap()
+                return True
+            if not getattr(self, "_active_transition_preview_id", ""):
+                return False
+            # Let the normal transition-state helper clear transition caches/logging,
+            # then immediately repaint the current visual frame so no partial old
+            # image remains stuck in the preview pane after the transition ends.
+            self._transition_preview_state_for_current_time()
+            self._refresh_preview_pixmap()
+            self._transition_log_once(
+                "transition exit repaint normal frame",
+                "Transition exited: normal preview frame repainted",
+            )
+            return True
+
         def _clamp_preview_pan(self) -> None:
             # Keep pan state sane. When not zoomed in, always return to the
             # exact center so repeated Fit/Fill/Zoom changes cannot drift away.
@@ -25398,6 +25984,10 @@ if QT_AVAILABLE:
             self.transitions_collapsed = not bool(getattr(self, "transitions_collapsed", False))
             self._apply_transitions_collapsed(save=True)
 
+        def toggle_effects_panel(self) -> None:
+            self.effects_collapsed = not bool(getattr(self, "effects_collapsed", False))
+            self._apply_effects_collapsed(save=True)
+
         def toggle_timeline_panel(self) -> None:
             self.timeline_collapsed = not self.timeline_collapsed
             self._apply_timeline_collapsed(save=True)
@@ -25476,6 +26066,21 @@ if QT_AVAILABLE:
                 self.log("Transitions collapsed." if collapsed else "Transitions expanded.")
             else:
                 self._refresh_top_band_splitter_sizes()
+
+        def _apply_effects_collapsed(self, save: bool = False) -> None:
+            collapsed = bool(getattr(self, "effects_collapsed", False))
+            widgets = getattr(self, "effects_content_widgets", [])
+            for widget in widgets:
+                try:
+                    widget.setVisible(not collapsed)
+                except Exception:
+                    pass
+            if hasattr(self, "effects_collapse_btn"):
+                self.effects_collapse_btn.setText("▼" if collapsed else "▲")
+                self.effects_collapse_btn.setToolTip("Expand Effects" if collapsed else "Collapse Effects")
+            if save:
+                self.save_editor_state()
+                self.log("Effects collapsed." if collapsed else "Effects expanded.")
 
         def _set_section_collapsed(self, section: QWidget, content_widgets: List[QWidget], button: QPushButton, collapsed: bool, name: str) -> None:
             for widget in content_widgets:
@@ -25612,6 +26217,7 @@ if QT_AVAILABLE:
         def _apply_all_collapsed_states(self) -> None:
             self._apply_media_collapsed(save=False)
             self._apply_transitions_collapsed(save=False)
+            self._apply_effects_collapsed(save=False)
             self._apply_timeline_collapsed(save=False)
             self._apply_preview_collapsed(save=False)
             self._apply_logs_collapsed(save=False)
@@ -25844,6 +26450,34 @@ if QT_AVAILABLE:
         def refresh_transition_library(self) -> None:
             if hasattr(self, "transition_table"):
                 self.transition_table.refresh()
+
+        def refresh_effect_presets(self, create_missing: bool = True, log_result: bool = False) -> List[Dict[str, Any]]:
+            self.effect_presets = load_effect_presets(framevision_root(), create_missing=create_missing)
+            if hasattr(self, "effect_table"):
+                self.effect_table.refresh()
+            if log_result:
+                folder = effect_presets_dir(framevision_root())
+                if self.effect_presets:
+                    self.log(f"Loaded {len(self.effect_presets)} effect preset(s).")
+                else:
+                    self.log(f"No effect presets found in: {folder}")
+            return self.effect_presets
+
+        def _effect_preset_by_id(self, preset_id: Any) -> Optional[Dict[str, Any]]:
+            wanted = str(preset_id or "")
+            if not wanted:
+                return None
+            for preset in list(getattr(self, "effect_presets", []) or []):
+                if str(preset.get("id") or "") == wanted:
+                    return preset
+            return None
+
+        def selected_effect_preset(self) -> Optional[Dict[str, Any]]:
+            if hasattr(self, "effect_table"):
+                preset = self.effect_table.selected_preset()
+                if preset:
+                    return preset
+            return self._effect_preset_by_id(str(getattr(self, "active_effect_preset_id", "") or ""))
 
         def transition_thumbnail_for_asset(self, asset: Dict[str, Any], size: QSize) -> Optional[QPixmap]:
             path_text = str(asset.get("path") or "")
@@ -28427,8 +29061,7 @@ if QT_AVAILABLE:
                     position = float(clock.get("position") or 0.0)
                     self._set_preview_position(position, duration=self.preview_playback_duration, update_slider=True)
                     self._sync_timeline_audio_to_time(self.playhead_time)
-                    if transition_preview_state(self.project, self.playhead_time):
-                        self._refresh_preview_pixmap()
+                    self._refresh_transition_preview_or_repaint_after_exit()
                     if getattr(self, "preview_image_source_path", "") == "":
                         self._show_black_preview_frame()
                     if self._maybe_switch_top_track_visual_clip():
@@ -28444,8 +29077,7 @@ if QT_AVAILABLE:
                     except Exception:
                         pass
                     self._sync_timeline_audio_to_time(self.playhead_time)
-                    if transition_preview_state(self.project, self.playhead_time) is not None:
-                        self._refresh_preview_pixmap()
+                    self._refresh_transition_preview_or_repaint_after_exit()
                     if self._maybe_switch_top_track_visual_clip():
                         return
                 return
@@ -28763,6 +29395,57 @@ if QT_AVAILABLE:
                 self._commit_project_edit(reason)
                 self.save_editor_state()
             self.canvas.update()
+
+        def _selected_effect_duration(self) -> float:
+            try:
+                return max(0.05, float(self.effect_duration_spin.value()))
+            except Exception:
+                return 1.0
+
+        def _selected_effect_mode(self) -> str:
+            try:
+                return normalize_effect_preset_mode(self.effect_mode_combo.currentData())
+            except Exception:
+                return EFFECT_PRESET_MODE_INTRO
+
+        def apply_selected_effect_preset(self) -> None:
+            clip = self._selected_visual_keyframe_clip()
+            if clip is None:
+                self.log("Effect preset skipped: select a video or image clip.")
+                return
+            can_edit, message = self.project.can_edit_clip(clip.clip_id)
+            if not can_edit:
+                self.log(f"Effect preset skipped: {message}")
+                return
+            preset = self.selected_effect_preset()
+            if preset is None:
+                self.log("Effect preset skipped: select an effect preset.")
+                return
+            replace_existing = bool(self.effect_replace_keyframes_box.isChecked()) if hasattr(self, "effect_replace_keyframes_box") else False
+            if clip_has_visual_keyframes(clip) and not replace_existing:
+                self.log("Effect preset skipped: selected clip already has visual keyframes. Enable Replace existing visual keyframes to overwrite them.")
+                return
+            duration = self._selected_effect_duration()
+            mode = self._selected_effect_mode()
+            rest_transform = self._current_visual_transform_for_clip_edit(clip)
+            self._begin_project_edit("apply effect preset")
+            ok, message, count = apply_effect_preset_to_clip(
+                clip,
+                preset,
+                mode,
+                duration,
+                replace_existing=replace_existing,
+                rest_transform=rest_transform,
+                project=self.project,
+            )
+            if not ok:
+                self._abort_project_edit()
+                self.log(f"Effect preset skipped: {message}.")
+                return
+            self.select_clip(clip.clip_id)
+            self.log(f"Effect preset applied: {preset.get('name', 'Effect preset')} to {clip.name} ({count} keyframe(s), mode {mode}, duration {duration:.2f}s)")
+            self._after_transform_change(save_state=True, reason="apply effect preset")
+            self._refresh_visual_keyframe_controls()
 
         def paste_effects_to_selected_clips(self) -> None:
             if not self.clip_clipboard or getattr(self, "clip_clipboard_type", "") != "effects_only":
@@ -30448,6 +31131,10 @@ if QT_AVAILABLE:
                 return
             default_path = str(default_timeline_export_output_path(framevision_root()))
             dialog = TimelineExportDialog(self, default_path=default_path)
+            try:
+                dialog.setStyleSheet(self._editor_theme_stylesheet(getattr(self, "editor_theme", DEFAULT_EDITOR_THEME)))
+            except Exception:
+                pass
 
             def _start_export_from_dialog() -> None:
                 if getattr(dialog, "_export_running", False):
@@ -30720,6 +31407,7 @@ if QT_AVAILABLE:
             self.timeline_collapsed = bool_from_project_value(state.get("timeline_collapsed"), False)
             self.preview_collapsed = bool_from_project_value(state.get("preview_collapsed"), False)
             self.transitions_collapsed = bool_from_project_value(state.get("transitions_collapsed"), False)
+            self.effects_collapsed = bool_from_project_value(state.get("effects_collapsed"), False)
             self.logs_collapsed = bool_from_project_value(state.get("logs_collapsed"), False)
             self.main_splitter_sizes = list(state.get("main_splitter_sizes", [330, 900]))
             self.right_splitter_sizes = list(state.get("right_splitter_sizes", [420, 300, 150]))
@@ -31011,6 +31699,7 @@ if QT_AVAILABLE:
                 "timeline_collapsed": self.timeline_collapsed,
                 "preview_collapsed": self.preview_collapsed,
                 "transitions_collapsed": bool(getattr(self, "transitions_collapsed", False)),
+                "effects_collapsed": bool(getattr(self, "effects_collapsed", False)),
                 "embed_preview_enabled": self.embed_preview_enabled,
                 "preview_view_mode": self.preview_view_mode,
                 "preview_zoom": 1.0,
@@ -31078,6 +31767,7 @@ if QT_AVAILABLE:
                 self.timeline_collapsed = bool(layout_state.get("timeline_collapsed", False))
                 self.preview_collapsed = bool(layout_state.get("preview_collapsed", False))
                 self.transitions_collapsed = bool(layout_state.get("transitions_collapsed", False))
+                self.effects_collapsed = bool(layout_state.get("effects_collapsed", False))
                 self.logs_collapsed = bool(layout_state.get("logs_collapsed", False))
                 self.main_splitter_sizes = list(layout_state.get("main_splitter_sizes", [330, 900]))
                 self.right_splitter_sizes = list(layout_state.get("right_splitter_sizes", [420, 300, 150]))
