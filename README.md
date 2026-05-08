@@ -271,3 +271,9 @@ For keyframed effects, start with two keyframes first. Add extra keyframes only 
 Use Add Default Keyframe as a clean anchor when you want a clip to return to its original/default position mid-effect. 
 Name/save project versions when trying risky changes, because autosave follows the current project instead of creating a full version history. 
 This help window is local and offline. The help text lives in helpers/editor_help.py, so it can be expanded later without changing timeline playback or export code. 
+
+---
+BUGS
+____
+
+playhead doesn't stay in sync when passing by tranistions, showing bad position compared to music track in preview pane, export to mp4 is no problem and works 100%, but preview still needs a lot of work
