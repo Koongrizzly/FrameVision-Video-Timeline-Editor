@@ -260,6 +260,10 @@ AUDIO_MODE_TOOLTIPS: Dict[str, str] = {
 }
 AUDIO_MODE_FROM_LABEL: Dict[str, str] = {label.lower(): key for key, label in AUDIO_MODE_LABELS.items()}
 AUDIO_SYNC_TOLERANCE_SECONDS = 0.35
+# Live preview must stay on the timeline/audio master clock. If the visual
+# QMediaPlayer falls this far behind/ahead, seek it to the current timeline
+# source time instead of letting stale frames drift out of sync.
+VISUAL_MASTER_DRIFT_CORRECTION_SECONDS = 0.18
 
 DEFAULT_EDITOR_FONT_SIZE = 9
 MIN_EDITOR_FONT_SIZE = 7
@@ -5138,9 +5142,13 @@ class TimelineProject:
                 continue
             boundary = overlap_start + (overlap_duration / 2.0)
             duration, was_clamped = clamp_transition_duration_for_clips(outgoing, incoming, overlap_duration)
-            resolved_mask_path = str(mask_path or (getattr(existing, "mask_path", "") if existing is not None else "") or "")
-            resolved_mask_name = str(mask_name or Path(resolved_mask_path).name or (getattr(existing, "mask_name", "") if existing is not None else "") or "")
+            incoming_mask_path = str(mask_path or "")
+            incoming_mask_name = str(mask_name or Path(incoming_mask_path).name or "")
+            existing_mask_path = str(getattr(existing, "mask_path", "") if existing is not None else "")
+            existing_mask_name = str(getattr(existing, "mask_name", "") if existing is not None else "")
             if existing is None:
+                resolved_mask_path = incoming_mask_path
+                resolved_mask_name = incoming_mask_name or Path(resolved_mask_path).name
                 if not resolved_mask_path and not resolved_mask_name:
                     continue
                 self.transitions.append(TimelineTransition(
@@ -5164,11 +5172,17 @@ class TimelineProject:
                 existing.duration = duration
                 existing.placement_mode = "overlap"
                 existing.enabled = True
-                if resolved_mask_path:
-                    existing.mask_path = resolved_mask_path
-                if resolved_mask_name:
-                    existing.mask_name = resolved_mask_name
-                existing.label = transition_display_name_from_filename(existing.mask_name or existing.mask_path)
+                # Existing overlap transitions are sticky. Timeline move/trim/drop
+                # refresh may retime or relink the transition, but it must not
+                # silently repaint the mask with whatever asset is currently
+                # selected in the Transitions panel. Only brand-new overlaps use
+                # the supplied mask_path/mask_name. Missing legacy mask metadata
+                # may still be repaired from the incoming values.
+                if not str(getattr(existing, "mask_path", "") or "") and incoming_mask_path:
+                    existing.mask_path = incoming_mask_path
+                if not str(getattr(existing, "mask_name", "") or "") and incoming_mask_name:
+                    existing.mask_name = incoming_mask_name
+                existing.label = existing.label or transition_display_name_from_filename(existing.mask_name or existing.mask_path)
                 if existing.to_dict() != before:
                     messages.append(f"Overlap transition updated: {duration:g}s")
                     changed = True
@@ -15357,6 +15371,40 @@ def run_self_tests() -> Tuple[bool, List[str]]:
         retimed_transition = retime_project.transitions[0] if retime_project.transitions else None
         check(ok_retime and retime_transition is not None and retime_changed and retimed_transition is not None and abs(float(retimed_transition.duration) - 2.0) < 1e-9, "moving overlap transition on same track retimes existing transition")
 
+        sticky_mask_project = TimelineProject(
+            clips=[
+                Clip("A", 0.0, 5.0, track=0, track_id="v", clip_id="sma", media_type="video"),
+                Clip("B", 4.0, 4.0, track=0, track_id="v", clip_id="smb", media_type="image"),
+            ],
+            tracks=[TimelineTrack(track_id="v", label="Video")],
+        )
+        ok_sticky, _sticky_msg, sticky_transition = sticky_mask_project.add_mask_transition_to_next_clip("sma", "original_mask.png", 1.0, "original_mask.png")
+        sticky_mask_project.move_clip("smb", 3.5, new_track=0, snap=False)
+        sticky_changed, _sticky_messages = sticky_mask_project.sync_overlap_transitions_for_clip("smb", "selected_mask.png", "selected_mask.png", create_missing=True)
+        sticky_after = sticky_mask_project.transitions[0] if sticky_mask_project.transitions else None
+        check(
+            ok_sticky
+            and sticky_transition is not None
+            and sticky_changed
+            and sticky_after is not None
+            and str(getattr(sticky_after, "mask_name", "")) == "original_mask.png"
+            and str(getattr(sticky_after, "mask_path", "")) == "original_mask.png",
+            "transition sync preserves existing mask instead of repainting with selected transition",
+        )
+        no_paint_project = TimelineProject(
+            clips=[
+                Clip("A", 0.0, 5.0, track=0, track_id="v", clip_id="npa", media_type="video"),
+                Clip("B", 4.0, 4.0, track=0, track_id="v", clip_id="npb", media_type="image"),
+                Clip("C", 7.0, 4.0, track=0, track_id="v", clip_id="npc", media_type="image"),
+            ],
+            tracks=[TimelineTrack(track_id="v", label="Video")],
+        )
+        ok_no_paint, _no_paint_msg, _no_paint_transition = no_paint_project.add_mask_transition_to_next_clip("npa", "first_mask.png", 1.0, "first_mask.png")
+        no_paint_project.move_clip("npb", 4.25, new_track=0, snap=False)
+        no_paint_changed, _no_paint_messages = no_paint_project.sync_overlap_transitions_for_clip("npb", "selected_mask.png", "selected_mask.png", create_missing=False)
+        no_paint_pairs = {(t.outgoing_clip_id, t.incoming_clip_id): str(t.mask_name) for t in no_paint_project.transitions}
+        check(ok_no_paint and no_paint_changed and len(no_paint_project.transitions) == 1 and no_paint_pairs.get(("npa", "npb")) == "first_mask.png", "normal clip move does not paint selected transition onto extra overlaps")
+
         reverse_order_project = TimelineProject(
             clips=[
                 Clip("A", 0.0, 5.0, track=0, track_id="v", clip_id="rda", media_type="video"),
@@ -18904,6 +18952,12 @@ if QT_AVAILABLE:
             self.timeline_audio_mix_source_starts: Dict[str, float] = {}
             self.timeline_audio_mix_speeds: Dict[str, float] = {}
             self.timeline_audio_mix_base_volumes: Dict[str, float] = {}
+            # v38: delayed QMediaPlayer seek retries must be token-gated.
+            # Without this, an older singleShot seek can fire after a newer
+            # timeline click and throw music/video back to an old source time.
+            self.preview_qt_seek_generation = 0
+            self.timeline_audio_seek_generation = 0
+            self.timeline_audio_mix_seek_generations: Dict[str, int] = {}
             self.reverse_preview_proxy_warmups: set[str] = set()
             self.reverse_preview_proxy_runtime: Dict[str, Dict[str, Any]] = {}
             self.reverse_preview_proxy_pending: Dict[str, Any] = {}
@@ -21990,7 +22044,7 @@ if QT_AVAILABLE:
             )
             return image_copy
 
-        def _transition_last_role_frame(self, role: str, clip: Optional[Clip]) -> Optional[QImage]:
+        def _transition_last_role_frame(self, role: str, clip: Optional[Clip], requested_source_time: Optional[float] = None) -> Optional[QImage]:
             if clip is None:
                 return None
             clean_role = "incoming" if str(role or "").lower() == "incoming" else "outgoing"
@@ -21999,11 +22053,22 @@ if QT_AVAILABLE:
             if cached is None:
                 return None
             try:
-                _cid, _time_value, image = cached
+                _cid, time_value, image = cached
             except Exception:
                 return None
             if image is None or image.isNull():
                 return None
+            if requested_source_time is not None and bool(getattr(self, "timeline_playback_active", False) and not getattr(self, "timeline_playback_paused", False)):
+                try:
+                    if abs(float(time_value or 0.0) - float(requested_source_time or 0.0)) > float(VISUAL_MASTER_DRIFT_CORRECTION_SECONDS):
+                        self._transition_rate_log(
+                            f"transition stale last dropped|{clean_role}|{clip_id}",
+                            f"Transition stale last frame dropped: {clean_role}",
+                            interval=0.35,
+                        )
+                        return None
+                except Exception:
+                    pass
             self._transition_rate_log(f"transition last frame fallback|{clean_role}|{clip_id}", f"Transition fallback: {clean_role} last frame")
             return image.copy()
 
@@ -22435,14 +22500,22 @@ if QT_AVAILABLE:
                     latest_bucket, latest_mtime, latest_image = latest
                     if abs(float(latest_mtime) - mtime) < 1e-9 and latest_image is not None and not latest_image.isNull():
                         actual = float(latest_bucket) / float(fps_bucket)
-                        accepted = self._transition_monotonic_accept_frame(role, clip, source, actual, latest_image)
-                        if accepted is not None and not accepted.isNull():
+                        live_master = bool(getattr(self, "timeline_playback_active", False) and not getattr(self, "timeline_playback_paused", False))
+                        if live_master and abs(float(actual) - float(source)) > float(VISUAL_MASTER_DRIFT_CORRECTION_SECONDS):
                             self._transition_rate_log(
-                                f"transition cached nearest|{role}|{clip_id}|{time_bucket}",
-                                f"Transition cached frame used: {role}={clip_id} requested={source:.3f} actual={actual:.3f}",
+                                f"transition stale nearest dropped|{role}|{clip_id}|{time_bucket}",
+                                f"Transition stale cached frame dropped: {role} requested={source:.3f} actual={actual:.3f}",
                                 interval=0.35,
                             )
-                            return accepted.copy()
+                        else:
+                            accepted = self._transition_monotonic_accept_frame(role, clip, source, actual, latest_image)
+                            if accepted is not None and not accepted.isNull():
+                                self._transition_rate_log(
+                                    f"transition cached nearest|{role}|{clip_id}|{time_bucket}",
+                                    f"Transition cached frame used: {role}={clip_id} requested={source:.3f} actual={actual:.3f}",
+                                    interval=0.35,
+                                )
+                                return accepted.copy()
                 except Exception:
                     pass
             return None
@@ -22505,7 +22578,7 @@ if QT_AVAILABLE:
                 decoded = self._transition_decode_video_frame_at_source_time(clip, float(source or 0.0), clean_role)
                 if decoded is not None and not decoded.isNull():
                     return decoded
-                fallback = self._transition_last_role_frame(clean_role, clip)
+                fallback = self._transition_last_role_frame(clean_role, clip, float(source or 0.0))
                 if fallback is not None and not fallback.isNull():
                     return fallback
                 fallback = self._transition_cached_video_fallback_frame(clip, clean_role)
@@ -23748,6 +23821,60 @@ if QT_AVAILABLE:
             except Exception:
                 pass
 
+        def _timeline_master_preview_position(self) -> Optional[float]:
+            if not bool(getattr(self, "timeline_playback_active", False)):
+                return None
+            if bool(getattr(self, "timeline_playback_paused", False) or getattr(self, "preview_paused", False)):
+                return None
+            if self.preview_playback_started_at is None or self.preview_playback_duration <= 0:
+                return None
+            try:
+                elapsed = max(0.0, time.monotonic() - float(self.preview_playback_started_at) - float(self.preview_pause_accumulated or 0.0))
+                return clamp_preview_offset(float(self.preview_playback_start_offset or 0.0) + elapsed, float(self.preview_playback_duration or 0.0))
+            except Exception:
+                return None
+
+        def _qt_preview_target_source_ms_for_position(self, position: Any) -> int:
+            try:
+                local_delta = max(0.0, float(position or 0.0) - float(self.preview_playback_start_offset or 0.0))
+                speed = clamp_clip_speed(getattr(self, "preview_playback_speed", 1.0), 1.0)
+                source_seconds = max(0.0, float(getattr(self, "preview_qt_source_start_seconds", 0.0) or 0.0) + local_delta * speed)
+                return max(0, int(round(source_seconds * 1000.0)))
+            except Exception:
+                return max(0, int(round(float(getattr(self, "preview_qt_source_start_seconds", 0.0) or 0.0) * 1000.0)))
+
+        def _resync_qt_visual_player_to_master(self, position: Any, force: bool = False) -> None:
+            player = getattr(self, "preview_qt_player", None)
+            if player is None or not bool(getattr(self, "preview_qt_active", False)):
+                return
+            target_ms = self._qt_preview_target_source_ms_for_position(position)
+            try:
+                current_ms = int(player.position())
+            except Exception:
+                current_ms = target_ms
+            drift_seconds = (float(current_ms) - float(target_ms)) / 1000.0
+            if not bool(force) and abs(drift_seconds) <= float(VISUAL_MASTER_DRIFT_CORRECTION_SECONDS):
+                return
+            try:
+                seek_gen = self._next_preview_qt_seek_generation()
+                player.setPosition(target_ms)
+                now = time.monotonic()
+                if now - float(getattr(self, "_last_visual_master_resync_log_time", 0.0) or 0.0) > 0.8:
+                    self._last_visual_master_resync_log_time = now
+                    self.log(f"Preview master-clock resync: video drift {drift_seconds:+.3f}s")
+                QTimer.singleShot(40, lambda gen=seek_gen, p=player, pos=target_ms: self._apply_delayed_preview_qt_seek(gen, p, pos))
+            except Exception:
+                pass
+
+        def _update_timeline_qt_preview_from_master_clock(self) -> None:
+            position = self._timeline_master_preview_position()
+            if position is None:
+                return
+            self._set_preview_position(position, duration=self.preview_playback_duration, update_slider=True)
+            self._resync_qt_visual_player_to_master(position, force=False)
+            if position >= max(0.0, self.preview_playback_duration) - 0.02:
+                self._finish_qt_preview_at_end()
+
         def _update_qt_preview_position_from_ms(self, position_ms: int) -> None:
             if self.preview_playback_duration <= 0:
                 return
@@ -23755,6 +23882,12 @@ if QT_AVAILABLE:
                 bool(hasattr(self, "preview_time_slider") and self.preview_time_slider.isSliderDown()),
                 self._preview_user_is_seeking,
             ):
+                return
+            if bool(getattr(self, "timeline_playback_active", False) and not getattr(self, "timeline_playback_paused", False)):
+                # Timeline/audio master clock owns live playback. QMediaPlayer
+                # positionChanged can lag behind during heavy transition preview,
+                # so never let it drag the playhead/video timing late.
+                self._update_timeline_qt_preview_from_master_clock()
                 return
             source_seconds = max(0.0, float(position_ms or 0) / 1000.0)
             elapsed_in_source = max(0.0, source_seconds - self.preview_qt_source_start_seconds)
@@ -23888,6 +24021,7 @@ if QT_AVAILABLE:
 
         def _stop_qt_preview_player(self) -> bool:
             had_qt = bool(self.preview_qt_active or self.preview_paused)
+            self._next_preview_qt_seek_generation()
             try:
                 if self.preview_qt_player is not None:
                     self.preview_qt_player.stop()
@@ -23986,6 +24120,60 @@ if QT_AVAILABLE:
                 self.log(f"Audio mix player unavailable: {exc}")
                 return None, None
 
+        def _next_preview_qt_seek_generation(self) -> int:
+            self.preview_qt_seek_generation = int(getattr(self, "preview_qt_seek_generation", 0) or 0) + 1
+            return int(self.preview_qt_seek_generation)
+
+        def _apply_delayed_preview_qt_seek(self, generation: int, player: Optional[QMediaPlayer], target_ms: int, play_after: bool = False) -> None:
+            if int(generation or 0) != int(getattr(self, "preview_qt_seek_generation", 0) or 0):
+                return
+            if player is None or player is not getattr(self, "preview_qt_player", None):
+                return
+            try:
+                player.setPosition(max(0, int(target_ms or 0)))
+                if bool(play_after):
+                    player.play()
+            except Exception:
+                pass
+
+        def _next_timeline_audio_seek_generation(self) -> int:
+            self.timeline_audio_seek_generation = int(getattr(self, "timeline_audio_seek_generation", 0) or 0) + 1
+            return int(self.timeline_audio_seek_generation)
+
+        def _apply_delayed_timeline_audio_seek(self, generation: int, player: Optional[QMediaPlayer], target_ms: int, play_after: bool = False) -> None:
+            if int(generation or 0) != int(getattr(self, "timeline_audio_seek_generation", 0) or 0):
+                return
+            if player is None or player is not getattr(self, "timeline_audio_player", None):
+                return
+            try:
+                player.setPosition(max(0, int(target_ms or 0)))
+                if bool(play_after):
+                    player.play()
+            except Exception:
+                pass
+
+        def _next_audio_mix_seek_generation(self, clip_id: str) -> int:
+            clip_id = str(clip_id or "")
+            generations = getattr(self, "timeline_audio_mix_seek_generations", {})
+            current = int(generations.get(clip_id, 0) or 0) + 1
+            generations[clip_id] = current
+            self.timeline_audio_mix_seek_generations = generations
+            return current
+
+        def _apply_delayed_audio_mix_seek(self, clip_id: str, generation: int, player: Optional[QMediaPlayer], target_ms: int, play_after: bool = False) -> None:
+            clip_id = str(clip_id or "")
+            generations = getattr(self, "timeline_audio_mix_seek_generations", {})
+            if int(generation or 0) != int(generations.get(clip_id, 0) or 0):
+                return
+            if player is None or player is not getattr(self, "timeline_audio_mix_players", {}).get(clip_id):
+                return
+            try:
+                player.setPosition(max(0, int(target_ms or 0)))
+                if bool(play_after):
+                    player.play()
+            except Exception:
+                pass
+
         def _set_audio_mix_source_volume(self, clip_id: str, volume_percent: Any) -> None:
             clip_id = str(clip_id or "")
             output = getattr(self, "timeline_audio_mix_outputs", {}).get(clip_id)
@@ -24023,6 +24211,7 @@ if QT_AVAILABLE:
 
         def _stop_audio_mix_source(self, clip_id: str, log_message: bool = True) -> bool:
             clip_id = str(clip_id or "")
+            self._next_audio_mix_seek_generation(clip_id)
             player = getattr(self, "timeline_audio_mix_players", {}).pop(clip_id, None)
             getattr(self, "timeline_audio_mix_outputs", {}).pop(clip_id, None)
             getattr(self, "timeline_audio_mix_source_paths", {}).pop(clip_id, None)
@@ -24057,6 +24246,7 @@ if QT_AVAILABLE:
             self.timeline_audio_mix_last_ids = []
             self.timeline_audio_mix_last_count = 0
             self.timeline_audio_mix_last_log_key = ""
+            self.timeline_audio_mix_seek_generations = {}
             self.audio_mix_protection_scale = 1.0
             if log_message and had_mix:
                 self.log("Audio mix cleared")
@@ -24122,11 +24312,13 @@ if QT_AVAILABLE:
                         self.timeline_audio_mix_source_paths[clip_id] = source_path
                         self.timeline_audio_mix_speeds[clip_id] = playback_speed
                         self.timeline_audio_mix_source_starts[clip_id] = source_start
-                        if should_play:
+                        if should_play and target_ms <= 5:
                             player.play()
                         self.log(f"Audio mix started: {source.get('clip_name')}")
-                        QTimer.singleShot(80, lambda p=player, pos=target_ms: p.setPosition(pos))
+                        seek_gen = self._next_audio_mix_seek_generation(clip_id)
+                        QTimer.singleShot(60, lambda cid=clip_id, gen=seek_gen, p=player, pos=target_ms, play=bool(should_play and target_ms > 5): self._apply_delayed_audio_mix_seek(cid, gen, p, pos, play))
                     elif bool(force) or clip_id in policy.get("seek_clip_ids", []):
+                        self._next_audio_mix_seek_generation(clip_id)
                         player.setPosition(target_ms)
                         self.timeline_audio_mix_source_starts[clip_id] = source_start
                         self.log(f"Audio mix seek: {source.get('clip_name')} {fmt_time(source_start)}")
@@ -24160,6 +24352,7 @@ if QT_AVAILABLE:
                 self.log("Audio mix paused")
 
         def _stop_timeline_audio_player(self, log_message: bool = False) -> bool:
+            self._next_timeline_audio_seek_generation()
             had_single = bool(self.timeline_audio_active_clip_id or self.timeline_audio_source_path)
             had_mix = self._clear_audio_mix_players(log_message=log_message)
             try:
@@ -24255,7 +24448,7 @@ if QT_AVAILABLE:
                     self.timeline_audio_speed = playback_speed
                     self.timeline_audio_last_plan_key = f"{clip_id}|{source_path}|{playback_speed:.6f}"
                     self.timeline_audio_last_gap_logged = False
-                    if should_play:
+                    if should_play and target_ms <= 5:
                         player.play()
                     if old_clip and old_clip != clip_id:
                         self.log(f"Audio source switched: {old_clip} -> {clip_id}")
@@ -24263,12 +24456,14 @@ if QT_AVAILABLE:
                         self.log(f"Audio source started: {plan.get('clip_name')}")
                     self.log(f"Using audio track clip: {plan.get('clip_name')} on {plan.get('track_name')}")
                     # Some Qt backends ignore the immediate seek after setSource.
-                    # Do this only for actual source starts/switches, never on
-                    # normal timeline ticks, so it cannot create pulsing.
-                    QTimer.singleShot(80, lambda: player.setPosition(target_ms))
+                    # Gate the retry and only start playback after the seek when
+                    # jumping into the middle, preventing audible restarts from 0.
+                    seek_gen = self._next_timeline_audio_seek_generation()
+                    QTimer.singleShot(60, lambda gen=seek_gen, p=player, pos=target_ms, play=bool(should_play and target_ms > 5): self._apply_delayed_timeline_audio_seek(gen, p, pos, play))
                     return
 
                 if bool(policy.get("seek_correction")):
+                    self._next_timeline_audio_seek_generation()
                     player.setPosition(target_ms)
                     self.timeline_audio_source_start_seconds = source_start
                     now = time.monotonic()
@@ -25917,10 +26112,17 @@ if QT_AVAILABLE:
                 assert player is not None
                 player.setPlaybackRate(playback_speed)
                 player.setSource(QUrl.fromLocalFile(str(Path(source_path).resolve())))
-                player.setPosition(max(0, int(round(source_start * 1000))))
-                player.play()
-                # Some backends ignore a seek immediately after setSource; repeat it once.
-                QTimer.singleShot(80, lambda: player.setPosition(max(0, int(round(source_start * 1000)))))
+                target_ms = max(0, int(round(source_start * 1000)))
+                seek_gen = self._next_preview_qt_seek_generation()
+                player.setPosition(target_ms)
+                # Do not let Qt start rendering from 0 while it is still applying
+                # the source seek. This is especially important for timeline seeks
+                # into a later point of a clip.
+                if target_ms <= 5:
+                    player.play()
+                    QTimer.singleShot(80, lambda gen=seek_gen, p=player, pos=target_ms: self._apply_delayed_preview_qt_seek(gen, p, pos))
+                else:
+                    QTimer.singleShot(40, lambda gen=seek_gen, p=player, pos=target_ms: self._apply_delayed_preview_qt_seek(gen, p, pos, True))
             except Exception as exc:
                 self.preview_qt_active = False
                 self._clear_timeline_playback_state()
@@ -26604,17 +26806,17 @@ if QT_AVAILABLE:
             self.log(f"Transition mask cache rebuilt: {transition_display_name_from_filename(path.name)} {image.width()}x{image.height()}")
             return self.transition_mask_cache[str(path)][1]
 
-        def sync_overlap_transitions_after_clip_edit(self, clip: Optional[Clip]) -> None:
+        def sync_overlap_transitions_after_clip_edit(self, clip: Optional[Clip], *, create_missing: bool = False) -> None:
             if clip is None or not clip_is_visual(clip):
                 return
-            asset = self.selected_transition_asset()
+            asset = self.selected_transition_asset() if bool(create_missing) else None
             mask_path = str(asset.get("path") if asset else "")
             mask_name = str(asset.get("name") if asset else "")
             changed, messages = self.project.sync_overlap_transitions_for_clip(
                 clip.clip_id,
                 mask_path=mask_path,
                 mask_name=mask_name,
-                create_missing=bool(asset),
+                create_missing=bool(create_missing and asset),
             )
             for message in messages:
                 if message:
@@ -27632,6 +27834,11 @@ if QT_AVAILABLE:
         def _request_timeline_playback_remap(self, reason: str = "timeline edit", immediate: bool = False) -> None:
             if not self._timeline_playback_or_gap_active() or getattr(self, "selected_preview_active", False):
                 return
+            # Only active playback may auto-remap/restart after an edit.
+            # A user-paused timeline is allowed to refresh the current preview
+            # frame, but must never resume playback or restart the audio by itself.
+            if bool(getattr(self, "timeline_playback_paused", False) or getattr(self, "preview_paused", False)):
+                return
             self.timeline_edit_generation = int(getattr(self, "timeline_edit_generation", 0) or 0) + 1
             self.timeline_playback_remap_generation = self.timeline_edit_generation
             self.timeline_playback_remap_pending = True
@@ -27642,6 +27849,12 @@ if QT_AVAILABLE:
                 self._consume_timeline_playback_remap(force=True)
 
         def _consume_timeline_playback_remap(self, force: bool = False) -> bool:
+            if bool(getattr(self, "timeline_playback_paused", False) or getattr(self, "preview_paused", False)):
+                # Drop stale live-remap requests while paused. They are only valid
+                # for active playback; paused edits are handled by timeline inspection.
+                self.timeline_playback_remap_pending = False
+                self.timeline_playback_remap_handled_generation = int(getattr(self, "timeline_playback_remap_generation", 0) or 0)
+                return False
             policy = timeline_edit_remap_generation_policy(
                 int(getattr(self, "timeline_playback_remap_generation", 0) or 0),
                 int(getattr(self, "timeline_playback_remap_handled_generation", 0) or 0),
@@ -28044,6 +28257,7 @@ if QT_AVAILABLE:
                     self.preview_qt_source_start_seconds = source_start
                     self.preview_playback_start_offset = offset
                     self.preview_playback_duration = duration
+                self._next_preview_qt_seek_generation()
                 self.preview_qt_player.setPosition(max(0, int(round(source_start * 1000))))
                 self.log(f"Preview seek: Qt player moved to {fmt_time(offset)} without restart.")
                 return
@@ -29107,6 +29321,8 @@ if QT_AVAILABLE:
                         self._update_qt_preview_position_from_ms(int(self.preview_qt_player.position()))
                     except Exception:
                         pass
+                    if not bool(getattr(self, "preview_qt_active", False)):
+                        return
                     self._sync_timeline_audio_to_time(self.playhead_time)
                     self._refresh_transition_preview_or_repaint_after_exit()
                     if self._maybe_switch_top_track_visual_clip():
@@ -29252,7 +29468,7 @@ if QT_AVAILABLE:
             # refresh path as clip move/trim release. Otherwise a Media Bin drop
             # can visually overlap another clip but the transition block only appears
             # after the user moves the clip again.
-            self.sync_overlap_transitions_after_clip_edit(clip)
+            self.sync_overlap_transitions_after_clip_edit(clip, create_missing=True)
             self.update_after_timeline_change(save_state=True, reason="add media clip to timeline")
             return clip
 
@@ -30987,7 +31203,16 @@ if QT_AVAILABLE:
                 self._update_audio_status_label()
 
         def update_after_timeline_change(self, save_state: bool = True, reason: str = "timeline edit") -> None:
-            live_timeline = bool(self._timeline_playback_or_gap_active() and not getattr(self, "selected_preview_active", False))
+            paused_timeline = bool(
+                self._timeline_playback_or_gap_active()
+                and not getattr(self, "selected_preview_active", False)
+                and (getattr(self, "timeline_playback_paused", False) or getattr(self, "preview_paused", False))
+            )
+            live_timeline = bool(
+                self._timeline_playback_or_gap_active()
+                and not paused_timeline
+                and not getattr(self, "selected_preview_active", False)
+            )
             if live_timeline:
                 self._request_timeline_playback_remap(reason, immediate=False)
             self.refresh_timeline_layout()
@@ -30996,6 +31221,12 @@ if QT_AVAILABLE:
             self._refresh_timeline_visual_aid_cache(force=False, reason=reason)
             preserve_preview = self._preview_should_preserve_on_timeline_change()
             self.update_preview_info(preserve_preview_position=preserve_preview)
+            if paused_timeline:
+                # Timeline edits while paused should update the frame under the
+                # current playhead, not restart playback. This also prevents the
+                # audio player from jumping back to the start through the live
+                # remap path.
+                self.request_timeline_preview_refresh(reason=reason, exact=True, dragging=False, release=True)
             if preserve_preview:
                 self._schedule_preview_surface_resize_burst("timeline edit during preview", log_first=False)
             if save_state:
