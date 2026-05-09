@@ -18,7 +18,7 @@
 BUGS
 ____
 
-playhead doesn't stay in sync when passing by transitions, results in showing bad position compared to music track in preview pane, export to mp4 is no problem and works 100%, but preview still needs a lot of work
+playhead doesn't stay in sync when passing by transitions, results in showing bad position compared to music track in preview pane, export to mp4 is no problem and works 100%, but preview still needs a lot of work. At the moment i solved this by making it skip everything it can't load in time. (so often you see no transitions in the preview pane)
 
 ---
 
@@ -258,29 +258,6 @@ Use Reset Layout if panels look wrong after resizing.
 Keep transition assets reasonably optimized for live preview. 
 Use Save Project often before testing big edits. Autosave helps, but named project saves are still the safest habit. 
 When something looks strange, test a short export before spending time fixing a preview-only issue. 
-Use reverse playback carefully around complex transitions. The MP4 export can still be fine even when live preview has to catch up. 
-
-- Common Beginner Mistakes
-Clips are added to the wrong track: check the Target track, or drag directly to the track you want. 
-A transition does not appear: make sure two visual clips overlap. 
-No sound: check clip volume, track mute, solo buttons, master mute, and the audio mode. 
-Preview is slow: lower Preview Quality, use lighter transition masks, or test-export if the slowdown happens around reverse playback or heavy effects. 
-Clip looks zoomed, moved, mirrored, or flipped: select it and use Reset Transform or Transform > Mirror / Flip > Reset mirror. 
-Keyframe movement is not happening: make sure the clip has at least two visual keyframes at different times, and that the playhead is inside that clip. 
-Keyframe button does nothing: select a video or image clip first. Audio-only clips and empty timeline space cannot use visual transform keyframes. 
-Text changed in more places than expected: remember that Text assets are reusable. Use separate Text assets when you need different wording or styling. 
-Text animation options are disabled: check whether Scroll is active. Scroll disables other movement animations so they do not conflict. 
-Group edit affects the wrong clips: check your multi-selection before moving, deleting, copying, or pasting. 
-Export does not match expectation: check track visibility/mute/solo and whether the correct clips are on top. 
-
-- Good Habits
-Build the rough cut first, then add transitions and fades. 
-Keep audio cleanup near the end of the edit. 
-Use short test exports when adding new transition styles. 
-Create separate Text assets for different title styles so edits stay predictable. 
-For keyframed effects, start with two keyframes first. Add extra keyframes only when the basic movement already works. 
-Use Add Default Keyframe as a clean anchor when you want a clip to return to its original/default position mid-effect. 
-Name/save project versions when trying risky changes, because autosave follows the current project instead of creating a full version history. 
-This help window is local and offline. The help text lives in helpers/editor_help.py, so it can be expanded later without changing timeline playback or export code. 
+Use reverse playback around complex transitions may stutter and make playhead sync mess up.. The MP4 export will still be fine even when live preview has to catch up. 
 
 
