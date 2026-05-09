@@ -40,7 +40,8 @@ Quick Start
 - Click Text on the timeline toolbar when you want to create titles, captions, credits, or animated text overlays. 
 - Use Play, Pause, Stop, Start, and End at the bottom to preview your edit. 
 - Drag clip edges to trim. Drag the clip body to move clips along the timeline or between tracks. 
-- Overlap two visual clips and apply a transition from the Transitions panel. 
+- Overlap two visual clips and apply a transition from the Transitions panel.
+- use preset effects to create better intro/outros for clips
 - Use right-click menus for clip options such as split, delete, speed, volume, fades, transforms,... 
 - Click Export Video when the timeline looks right. 
 ---
