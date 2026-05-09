@@ -15,6 +15,16 @@
 
 
 ---
+BUGS
+____
+
+playhead doesn't stay in sync when passing by transitions, results in showing bad position compared to music track in preview pane, export to mp4 is no problem and works 100%, but preview still needs a lot of work
+
+---
+
+Info/how to use
+---
+
 - A local/offline timeline editor, built with python, running in Pyside6.
 - Build a video from clips, images, audio, transitions, fades, transforms and more into a final MP4 exported media file.
 - Needs python, Numpy, Pillow and pyside6 to run, needs ffmpeg bundle extracted in /presets/bin or /bin/ to work
@@ -272,8 +282,4 @@ Use Add Default Keyframe as a clean anchor when you want a clip to return to its
 Name/save project versions when trying risky changes, because autosave follows the current project instead of creating a full version history. 
 This help window is local and offline. The help text lives in helpers/editor_help.py, so it can be expanded later without changing timeline playback or export code. 
 
----
-BUGS
-____
 
-playhead doesn't stay in sync when passing by tranistions, showing bad position compared to music track in preview pane, export to mp4 is no problem and works 100%, but preview still needs a lot of work
